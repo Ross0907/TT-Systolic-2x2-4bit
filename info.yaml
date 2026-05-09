@@ -12,7 +12,7 @@ project:
   top_module:  "tt_um_ross_systolic"
 
   source_files:
-    - "tt_um_ross_systolic.v"
+    - "project.v"
     - "systolic_4x4.v"
     - "systolic_pe.v"
     - "wallace_mult_2x2.v"
