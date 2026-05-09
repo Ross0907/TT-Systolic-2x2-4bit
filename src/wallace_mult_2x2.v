@@ -19,7 +19,7 @@
 // =============================================================================
 
 `default_nettype none
-`timescale 1ns / 1ps
+
 
 module wallace_mult_2x2 (
     input  wire [1:0] a,

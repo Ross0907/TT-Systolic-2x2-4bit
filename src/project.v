@@ -69,7 +69,7 @@
 // =============================================================================
 
 `default_nettype none
-`timescale 1ns / 1ps
+
 
 module tt_um_ross_systolic (
     input  wire [7:0] ui_in,
@@ -92,8 +92,7 @@ module tt_um_ross_systolic (
     // -------------------------------------------------------------------------
     wire       wren   = uio_in[0];
     wire       start  = uio_in[1];
-    wire       debug  = uio_in[2];
-
+	wire       debug  = uio_in[2];
     // -------------------------------------------------------------------------
     // Matrix data registers (8 bytes)
     // -------------------------------------------------------------------------
@@ -230,17 +229,17 @@ module tt_um_ross_systolic (
     // -------------------------------------------------------------------------
     // Output assignments
     // -------------------------------------------------------------------------
-    assign uo_out[5:0] = result_data;
-    assign uo_out[6]   = out_valid;
-    assign uo_out[7]   = out_busy || busy_core;
+	assign uo_out[5:0] = result_data;
+	assign uo_out[6]   = out_valid;
+	assign uo_out[7]   = out_busy || busy_core;
 
-    // Debug output on bidir pins
-	assign uio_out = 8'b0;
-	assign uio_oe  = 8'b0;
+	assign uio_out[3:0] = debug ? out_idx[3:0] : 4'b0;
+	assign uio_out[7:4] = 4'b0;
 
-    // Suppress unused-signal warnings
-    wire _unused = &{ena, uio_in[7:3], 1'b0};
-
+	assign uio_oe[3:0] = debug ? 4'b1111 : 4'b0000;
+	assign uio_oe[7:4] = 4'b0000;
+	
+	wire _unused = &{ena, 1'b0};
 endmodule
 
 `default_nettype wire

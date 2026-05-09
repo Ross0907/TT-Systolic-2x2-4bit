@@ -1,5 +1,4 @@
 `default_nettype none
-`timescale 1ns / 1ps
 
 module systolic_pe (
     input  wire       clk,
@@ -16,8 +15,11 @@ module systolic_pe (
 );
 
     // combinational forwarding
-    assign a_out = a_in;
-    assign b_out = b_in;
+    reg [1:0] a_pipe;
+    reg [1:0] b_pipe;
+
+    assign a_out = a_pipe;
+    assign b_out = b_pipe;
 
     // Wallace multiplier
     wire [3:0] product;
@@ -32,10 +34,17 @@ module systolic_pe (
 
     always @(posedge clk) begin
         if (rst) begin
-            acc <= 6'd0;
+            a_pipe <= 2'd0;
+            b_pipe <= 2'd0;
+            acc    <= 6'd0;
+
         end else if (clk_en) begin
+
+            a_pipe <= a_in;
+            b_pipe <= b_in;
+
             if (clear)
-                acc <= product_ext;
+                acc <= 6'd0;
             else
                 acc <= acc + product_ext;
         end
