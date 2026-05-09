@@ -1,18 +1,9 @@
 // =============================================================================
 // FILE        : systolic_4x4.v
-// DESCRIPTION : Cleaned 4×4 Systolic Array Matrix Multiplier
-//
-// Fixes applied:
-// - Removes ALL unused interconnect wires
-// - Removes floating nets warning [RSZ-0020]
-// - Prevents dangling PE outputs
-// - Cleaner routing for OpenROAD detailed placement
-// - Keeps exact functional behavior
-//
+// DESCRIPTION : Corrected 4×4 Systolic Array Matrix Multiplier
 // =============================================================================
 
 `default_nettype none
-
 
 module systolic_4x4 (
     input  wire       clk,
@@ -20,13 +11,13 @@ module systolic_4x4 (
     input  wire       clk_en,
     input  wire       start,
 
-    // Matrix A elements
+    // Matrix A
     input  wire [1:0] a00, a01, a02, a03,
     input  wire [1:0] a10, a11, a12, a13,
     input  wire [1:0] a20, a21, a22, a23,
     input  wire [1:0] a30, a31, a32, a33,
 
-    // Matrix B elements
+    // Matrix B
     input  wire [1:0] b00, b01, b02, b03,
     input  wire [1:0] b10, b11, b12, b13,
     input  wire [1:0] b20, b21, b22, b23,
@@ -46,7 +37,7 @@ module systolic_4x4 (
     // Controller
     // =========================================================================
 
-    localparam CYCLES_TOTAL = 4'd11;
+    localparam CYCLES_TOTAL = 4'd10;
 
     reg [3:0] cycle_cnt;
     reg       active;
@@ -57,21 +48,24 @@ module systolic_4x4 (
             cycle_cnt <= 4'd0;
             busy      <= 1'b0;
             done      <= 1'b0;
+
         end else begin
+
             done <= 1'b0;
 
             if (start && !active) begin
                 active    <= 1'b1;
                 cycle_cnt <= 4'd0;
                 busy      <= 1'b1;
-            end
-            else if (active) begin
+
+            end else if (active) begin
+
                 if (cycle_cnt == (CYCLES_TOTAL - 1'b1)) begin
                     active <= 1'b0;
                     busy   <= 1'b0;
                     done   <= 1'b1;
-                end
-                else begin
+
+                end else begin
                     cycle_cnt <= cycle_cnt + 1'b1;
                 end
             end
@@ -84,8 +78,12 @@ module systolic_4x4 (
     wire run_en   = active & clk_en;
 
     // =========================================================================
-    // Input Feed
+    // Proper skewed systolic feed
     // =========================================================================
+
+    // -----------------------------
+    // A feeds (row skew)
+    // -----------------------------
 
     wire [1:0] feed_a0 =
         (t==0) ? a00 :
@@ -94,22 +92,26 @@ module systolic_4x4 (
         (t==3) ? a03 : 2'd0;
 
     wire [1:0] feed_a1 =
-        (t==0) ? a10 :
-        (t==1) ? a11 :
-        (t==2) ? a12 :
-        (t==3) ? a13 : 2'd0;
+        (t==1) ? a10 :
+        (t==2) ? a11 :
+        (t==3) ? a12 :
+        (t==4) ? a13 : 2'd0;
 
     wire [1:0] feed_a2 =
-        (t==0) ? a20 :
-        (t==1) ? a21 :
-        (t==2) ? a22 :
-        (t==3) ? a23 : 2'd0;
+        (t==2) ? a20 :
+        (t==3) ? a21 :
+        (t==4) ? a22 :
+        (t==5) ? a23 : 2'd0;
 
     wire [1:0] feed_a3 =
-        (t==0) ? a30 :
-        (t==1) ? a31 :
-        (t==2) ? a32 :
-        (t==3) ? a33 : 2'd0;
+        (t==3) ? a30 :
+        (t==4) ? a31 :
+        (t==5) ? a32 :
+        (t==6) ? a33 : 2'd0;
+
+    // -----------------------------
+    // B feeds (column skew)
+    // -----------------------------
 
     wire [1:0] feed_b0 =
         (t==0) ? b00 :
@@ -118,39 +120,36 @@ module systolic_4x4 (
         (t==3) ? b30 : 2'd0;
 
     wire [1:0] feed_b1 =
-        (t==0) ? b01 :
-        (t==1) ? b11 :
-        (t==2) ? b21 :
-        (t==3) ? b31 : 2'd0;
+        (t==1) ? b01 :
+        (t==2) ? b11 :
+        (t==3) ? b21 :
+        (t==4) ? b31 : 2'd0;
 
     wire [1:0] feed_b2 =
-        (t==0) ? b02 :
-        (t==1) ? b12 :
-        (t==2) ? b22 :
-        (t==3) ? b32 : 2'd0;
+        (t==2) ? b02 :
+        (t==3) ? b12 :
+        (t==4) ? b22 :
+        (t==5) ? b32 : 2'd0;
 
     wire [1:0] feed_b3 =
-        (t==0) ? b03 :
-        (t==1) ? b13 :
-        (t==2) ? b23 :
-        (t==3) ? b33 : 2'd0;
+        (t==3) ? b03 :
+        (t==4) ? b13 :
+        (t==5) ? b23 :
+        (t==6) ? b33 : 2'd0;
 
     // =========================================================================
-    // Interconnect Wires
+    // Interconnects
     // =========================================================================
 
-    // Horizontal propagation
     wire [1:0] a_h00, a_h01, a_h02;
     wire [1:0] a_h10, a_h11, a_h12;
     wire [1:0] a_h20, a_h21, a_h22;
     wire [1:0] a_h30, a_h31, a_h32;
 
-    // Vertical propagation
     wire [1:0] b_v00, b_v01, b_v02, b_v03;
     wire [1:0] b_v10, b_v11, b_v12, b_v13;
     wire [1:0] b_v20, b_v21, b_v22, b_v23;
 
-    // Dummy sinks to eliminate floating nets
     wire [1:0] unused_aout_03;
     wire [1:0] unused_aout_13;
     wire [1:0] unused_aout_23;

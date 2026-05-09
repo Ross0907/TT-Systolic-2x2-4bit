@@ -37,7 +37,7 @@ module systolic_pe (
             b_out <= b_in;
 
             if (clear)
-                acc <= product_ext;
+                acc <= 6'd0;
             else
                 acc <= acc + product_ext;
         end
