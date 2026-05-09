@@ -1,98 +1,49 @@
-# Tiny Tapeout project info
-# Replace "your-github-username" with your actual GitHub username before submitting.
-# The top_module name must start with tt_um_ and match your module name exactly.
-
+# Tiny Tapeout project information
 project:
-  wokwi_id:    0        # 0 for HDL projects (non-Wokwi)
-  source_files:
-    - tt_um_systolic_2x2.v
-    - systolic_2x2.v
-    - pe.v
-  top_module:  "tt_um_systolic_2x2"
-
-documentation:
-  author:       "Your Name"         # ← replace with your name
-  title:        "2x2 Systolic Array Matrix Multiplier"
+  title:        "4x4 Systolic Array Matrix Multiplier"
+  author:       "Ross"
+  discord:      ""
+  description:  "4x4 systolic array with Wallace tree multipliers computing 4x4 matrix multiply with 2-bit elements"
   language:     "Verilog"
-  description: |
-    A 2×2 systolic array that computes C = A × B where A and B are 2×2 matrices
-    with 2-bit elements (values 0–3). Results are 5-bit accumulators (max value 18).
-    Matrix A is supplied on ui_in, Matrix B on the bidirectional uio pins (used as
-    inputs). After reset, computation starts automatically and runs continuously.
-    Results are output serially on uo_out over 4 clock cycles, indexed by
-    uo_out[6:5], with uo_out[7] high when results are valid.
+  clock_hz:     0
 
-  how_it_works: |
-    Four Processing Elements (PEs) are arranged in a 2×2 grid. Each PE accumulates
-    partial products as data flows rightward (A elements) and downward (B elements)
-    through the array. Inputs are skewed by the state machine so each PE receives
-    the correct A and B operands in the right pipeline stage.
+  tiles: "1x1"
 
-    The computation runs in exactly 5 clock cycles per matrix multiply:
-      Cycle 1 – State machine loads a00/b00 with clear (first MAC)
-      Cycle 2 – PE00 completes C[0][0]; PE01/PE10 receive first operands
-      Cycle 3 – PE01/PE10 complete; PE11 receives first operands
-      Cycle 4 – Flush: PE11 completes C[1][1]; done pulses HIGH
-      Cycle 5 – Back to IDLE; new computation begins immediately
+  top_module:  "tt_um_ross_systolic"
 
-    With clk_en=1 and start=1, the array runs continuously and produces a new
-    set of results every 5 clock cycles.  Results are latched and presented
-    serially over 4 output cycles.
+  source_files:
+    - "tt_um_ross_systolic.v"
+    - "systolic_4x4.v"
+    - "systolic_pe.v"
+    - "wallace_mult_2x2.v"
 
-  how_to_test: |
-    1. Hold rst_n LOW.
-    2. Set ui_in to your Matrix A:
-         ui_in[1:0] = a00,  ui_in[3:2] = a01
-         ui_in[5:4] = a10,  ui_in[7:6] = a11
-    3. Set uio_in to your Matrix B (all bidir pins are inputs):
-         uio_in[1:0] = b00, uio_in[3:2] = b01
-         uio_in[5:4] = b10, uio_in[7:6] = b11
-    4. Assert rst_n HIGH.  Computation starts on the next rising clock edge.
-    5. Wait for uo_out[7] = 1 (takes ~6 clock cycles from reset release).
-    6. Sample uo_out[4:0] over 4 consecutive rising clock edges:
-         When uo_out[6:5] = 00 → uo_out[4:0] = C[0][0]
-         When uo_out[6:5] = 01 → uo_out[4:0] = C[0][1]
-         When uo_out[6:5] = 10 → uo_out[4:0] = C[1][0]
-         When uo_out[6:5] = 11 → uo_out[4:0] = C[1][1]
+pinout:
+  ui[0]: "data_byte_bit0"
+  ui[1]: "data_byte_bit1"
+  ui[2]: "data_byte_bit2"
+  ui[3]: "data_byte_bit3"
+  ui[4]: "data_byte_bit4"
+  ui[5]: "data_byte_bit5"
+  ui[6]: "data_byte_bit6"
+  ui[7]: "data_byte_bit7"
 
-    Quick sanity check (identity × identity):
-      A = B = [[1,0],[0,1]]  →  C = [[1,0],[0,1]]
-      ui_in = 8'b01_00_00_01 = 8'h41
-      uio_in = same = 8'h41
-      Expected results: C[0][0]=1, C[0][1]=0, C[1][0]=0, C[1][1]=1
+  uo[0]: "result_data_bit0"
+  uo[1]: "result_data_bit1"
+  uo[2]: "result_data_bit2"
+  uo[3]: "result_data_bit3"
+  uo[4]: "result_data_bit4"
+  uo[5]: "result_data_bit5"
+  uo[6]: "valid"
+  uo[7]: "busy"
 
-    Maximum value check:
-      A = B = [[3,3],[3,3]]  →  C = [[18,18],[18,18]]
-      ui_in = 8'b11_11_11_11 = 8'hFF
-      uio_in = 8'hFF
-      Expected results: all 18 (5'b10010)
+  uio[0]: "wren"
+  uio[1]: "start"
+  uio[2]: "debug"
+  uio[3]: ""
+  uio[4]: ""
+  uio[5]: ""
+  uio[6]: ""
+  uio[7]: ""
 
-  inputs:
-    - "a00 bit 0 – Matrix A element [row0,col0] LSB"
-    - "a00 bit 1 – Matrix A element [row0,col0] MSB"
-    - "a01 bit 0 – Matrix A element [row0,col1] LSB"
-    - "a01 bit 1 – Matrix A element [row0,col1] MSB"
-    - "a10 bit 0 – Matrix A element [row1,col0] LSB"
-    - "a10 bit 1 – Matrix A element [row1,col0] MSB"
-    - "a11 bit 0 – Matrix A element [row1,col1] LSB"
-    - "a11 bit 1 – Matrix A element [row1,col1] MSB"
-
-  outputs:
-    - "acc_out bit 0 – Selected result LSB"
-    - "acc_out bit 1 – Selected result bit 1"
-    - "acc_out bit 2 – Selected result bit 2"
-    - "acc_out bit 3 – Selected result bit 3"
-    - "acc_out bit 4 – Selected result MSB (max value 18 = 5'b10010)"
-    - "sel bit 0 – Result selector LSB (00=C00,01=C01,10=C10,11=C11)"
-    - "sel bit 1 – Result selector MSB"
-    - "done – HIGH for 4 cycles when results are valid and cycling"
-
-  bidirectional:
-    - "b00 bit 0 – Matrix B element [row0,col0] LSB  (input)"
-    - "b00 bit 1 – Matrix B element [row0,col0] MSB  (input)"
-    - "b01 bit 0 – Matrix B element [row0,col1] LSB  (input)"
-    - "b01 bit 1 – Matrix B element [row0,col1] MSB  (input)"
-    - "b10 bit 0 – Matrix B element [row1,col0] LSB  (input)"
-    - "b10 bit 1 – Matrix B element [row1,col0] MSB  (input)"
-    - "b11 bit 0 – Matrix B element [row1,col1] LSB  (input)"
-    - "b11 bit 1 – Matrix B element [row1,col1] MSB  (input)"
+# Do not change!
+yaml_version: 6
