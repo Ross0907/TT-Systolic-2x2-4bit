@@ -1,8 +1,8 @@
 ![](../../workflows/gds/badge.svg) ![](../../workflows/docs/badge.svg) ![](../../workflows/test/badge.svg) ![](../../workflows/fpga/badge.svg)
 
-# 3×3 Systolic Array Matrix Multiplier
+# 2×2 Systolic Array Matrix Multiplier
 
-A 3×3 systolic array that computes **C = A × B** where A and B are 3×3 matrices with 3-bit unsigned elements (values 0–7). Results are 8-bit accumulators (max 147).
+A 2×2 systolic array that computes **C = A × B** where A and B are 2×2 matrices with 4-bit unsigned elements (values 0–15). Internal accumulators are 9-bit (max 450); output is lower 8 bits on `uo_out`.
 
 - [Read the documentation](docs/info.md)
 
@@ -14,10 +14,12 @@ To learn more and get started, visit https://tinytapeout.com.
 
 ## How it works
 
-- **9 PEs** in a 3×3 grid, each with a 3×3 multiplier + 8-bit accumulator
-- **Skewed input feeding** via an 8-cycle counter
-- **Byte-serial loading**: load 10 bytes (5 for A + 5 for B), then pulse `start`
-- **Serial output**: 9 results streamed over 9 clock cycles
+- **4 PEs** in a 2×2 grid, each with a 4×4 multiplier + 9-bit accumulator
+- **Skewed input feeding** via a 4-cycle counter
+- **Byte-serial loading**: load 4 bytes (2 for A + 2 for B), then pulse `start`
+- **Serial output**: 4 results streamed over 4 clock cycles
+- **Debug/status outputs** on `uio_out[7:2]`: busy_core, out_valid, out_busy
+- **`ena` gating**: `start` is only accepted when `ena` is HIGH
 
 See [docs/info.md](docs/info.md) for the full pinout and protocol description.
 
@@ -29,14 +31,14 @@ cd TT_Systolic_
 iverilog -g2012 -Wall -o sim.out \
   test/tb_vivado.v \
   src/project.v \
-  src/systolic_3x3.v \
+  src/systolic_2x2.v \
   src/systolic_pe.v \
-  src/mult_3x3.v
+  src/mult_4x4.v
 vvp sim.out
 ```
 
 ### Vivado
-1. Add `src/mult_3x3.v`, `src/systolic_pe.v`, `src/systolic_3x3.v`, `src/project.v`
+1. Add `src/mult_4x4.v`, `src/systolic_pe.v`, `src/systolic_2x2.v`, `src/project.v`
 2. Add `test/tb_vivado.v` as simulation top
 3. Run Behavioral Simulation, then in Tcl console: `run 5000ns`
 
@@ -52,9 +54,9 @@ python run_tests.py
 | File | Description |
 |------|-------------|
 | `src/project.v` | Tiny Tapeout top module (`tt_um_ross_systolic`) |
-| `src/systolic_3x3.v` | 3×3 systolic grid with skewed input controller |
-| `src/systolic_pe.v` | Processing element (3×3 mult + 8-bit accumulator) |
-| `src/mult_3x3.v` | 3×3 unsigned multiplier |
+| `src/systolic_2x2.v` | 2×2 systolic grid with skewed input controller |
+| `src/systolic_pe.v` | Processing element (4×4 mult + 9-bit accumulator) |
+| `src/mult_4x4.v` | 4×4 unsigned multiplier |
 | `test/tb_vivado.v` | Self-checking Vivado testbench (7 test cases) |
 | `test/test.py` | cocotb Python tests |
 

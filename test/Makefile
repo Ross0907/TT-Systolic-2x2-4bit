@@ -8,9 +8,9 @@ TOPLEVEL_LANG ?= verilog
 SRC_DIR = $(PWD)/../src
 PROJECT_SOURCES = \
 project.v \
-systolic_3x3.v \
+systolic_2x2.v \
 systolic_pe.v \
-mult_3x3.v
+mult_4x4.v
 
 ifneq ($(GATES),yes)
 

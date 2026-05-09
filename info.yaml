@@ -1,9 +1,9 @@
 # Tiny Tapeout project information
 project:
-  title:        "3x3 Systolic Array Matrix Multiplier"
+  title:        "2x2 Systolic Array Matrix Multiplier"
   author:       "Ross"
   discord:      ""
-  description:  "3x3 systolic array computing 3x3 matrix multiply with 3-bit elements"
+  description:  "2x2 systolic array computing 2x2 matrix multiply with 4-bit elements"
   language:     "Verilog"
   clock_hz:     0
 
@@ -13,9 +13,9 @@ project:
 
   source_files:
     - "project.v"
-    - "systolic_3x3.v"
+    - "systolic_2x2.v"
     - "systolic_pe.v"
-    - "mult_3x3.v"
+    - "mult_4x4.v"
 
 pinout:
   ui[0]: "data_byte_bit0"

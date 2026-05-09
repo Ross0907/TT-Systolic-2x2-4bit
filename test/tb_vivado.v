@@ -1,15 +1,15 @@
 // =============================================================================
 // FILE        : tb_vivado.v
 // DESCRIPTION : Self-checking Verilog testbench for tt_um_ross_systolic
-//               3×3 Systolic Array Matrix Multiplier (3-bit elements)
+//               2×2 Systolic Array Matrix Multiplier (4-bit elements)
 //
 // HOW TO USE IN VIVADO
 // ────────────────────
 //  1. File → Add Sources → Add or create simulation sources
 //     Add ALL of:
-//       src/mult_3x3.v
+//       src/mult_4x4.v
 //       src/systolic_pe.v
-//       src/systolic_3x3.v
+//       src/systolic_2x2.v
 //       src/project.v
 //       test/tb_vivado.v   (set as top)
 //  2. In the Flow Navigator, click "Run Simulation" → "Run Behavioral Simulation"
@@ -66,22 +66,21 @@ module tb_vivado;
     integer pass_count = 0;
     integer fail_count = 0;
 
-    // Pack two 3-bit elements into one byte: {2'b0, e1[2:0], e0[2:0]}
-    function [7:0] pack2_3bit;
-        input [2:0] e0, e1;
+    // Pack two 4-bit elements into one byte: {e1[3:0], e0[3:0]}
+    function [7:0] pack2_4bit;
+        input [3:0] e0, e1;
         begin
-            pack2_3bit = {2'b00, e1, e0};
+            pack2_4bit = {e1, e0};
         end
     endfunction
 
-    // Reference 3×3 matrix multiply element
-    function [7:0] ref_elem;
-        input [2:0] a0, a1, a2;
-        input [2:0] b0, b1, b2;
+    // Reference 2×2 matrix multiply element (9-bit internal, compare lower 8 bits)
+    function [8:0] ref_elem;
+        input [3:0] a0, a1;
+        input [3:0] b0, b1;
         begin
-            ref_elem = ({5'b0, a0} * {5'b0, b0}) +
-                       ({5'b0, a1} * {5'b0, b1}) +
-                       ({5'b0, a2} * {5'b0, b2});
+            ref_elem = ({4'b0, a0} * {4'b0, b0}) +
+                       ({4'b0, a1} * {4'b0, b1});
         end
     endfunction
 
@@ -122,78 +121,61 @@ module tb_vivado;
         end
     endtask
 
-    // Read 9 serial results after fixed delay
-    reg [7:0] results [0:8];
+    // Read 4 serial results
+    reg [7:0] results [0:3];
     task read_results;
         integer j;
         begin
-            for (j = 0; j < 9; j = j + 1) begin
+            for (j = 0; j < 4; j = j + 1) begin
                 results[j] = uo_out;
                 @(posedge clk);
             end
         end
     endtask
 
-    // Run one complete 3×3 test case
+    // Run one complete 2×2 test case
     task run_test;
-        input [2:0] a00, a01, a02;
-        input [2:0] a10, a11, a12;
-        input [2:0] a20, a21, a22;
-        input [2:0] b00, b01, b02;
-        input [2:0] b10, b11, b12;
-        input [2:0] b20, b21, b22;
+        input [3:0] a00, a01;
+        input [3:0] a10, a11;
+        input [3:0] b00, b01;
+        input [3:0] b10, b11;
         input [63:0] label;
-        reg [7:0] ec00, ec01, ec02;
-        reg [7:0] ec10, ec11, ec12;
-        reg [7:0] ec20, ec21, ec22;
+        reg [8:0] ec00, ec01;
+        reg [8:0] ec10, ec11;
         reg ok;
         begin
-            // Expected results
-            ec00 = ref_elem(a00, a01, a02, b00, b10, b20);
-            ec01 = ref_elem(a00, a01, a02, b01, b11, b21);
-            ec02 = ref_elem(a00, a01, a02, b02, b12, b22);
-            ec10 = ref_elem(a10, a11, a12, b00, b10, b20);
-            ec11 = ref_elem(a10, a11, a12, b01, b11, b21);
-            ec12 = ref_elem(a10, a11, a12, b02, b12, b22);
-            ec20 = ref_elem(a20, a21, a22, b00, b10, b20);
-            ec21 = ref_elem(a20, a21, a22, b01, b11, b21);
-            ec22 = ref_elem(a20, a21, a22, b02, b12, b22);
+            // Expected results (9-bit)
+            ec00 = ref_elem(a00, a01, b00, b10);
+            ec01 = ref_elem(a00, a01, b01, b11);
+            ec10 = ref_elem(a10, a11, b00, b10);
+            ec11 = ref_elem(a10, a11, b01, b11);
 
             do_reset;
 
-            // Load 10 bytes: A (5 bytes), then B (5 bytes)
-            // A packing: byte0={a01,a00}, byte1={a10,a02}, byte2={a12,a11}, byte3={a21,a20}, byte4={5'b0,a22}
-            load_byte(pack2_3bit(a00, a01));
-            load_byte(pack2_3bit(a02, a10));
-            load_byte(pack2_3bit(a11, a12));
-            load_byte(pack2_3bit(a20, a21));
-            load_byte({5'b0, a22});
-            // B packing: byte5={b01,b00}, byte6={b10,b02}, byte7={b12,b11}, byte8={b21,b20}, byte9={5'b0,b22}
-            load_byte(pack2_3bit(b00, b01));
-            load_byte(pack2_3bit(b02, b10));
-            load_byte(pack2_3bit(b11, b12));
-            load_byte(pack2_3bit(b20, b21));
-            load_byte({5'b0, b22});
+            // Load 4 bytes: A (2 bytes), then B (2 bytes)
+            // Perfect 4-bit packing: byte={e1,e0}
+            load_byte(pack2_4bit(a00, a01));
+            load_byte(pack2_4bit(a10, a11));
+            load_byte(pack2_4bit(b00, b01));
+            load_byte(pack2_4bit(b10, b11));
 
             // Start computation
             do_start;
 
-            // Wait for systolic array to finish (~10 cycles) then read 9 outputs
-            repeat(10) @(posedge clk);
+            // Wait for systolic array to finish (~6 cycles) then read 4 outputs
+            repeat(6) @(posedge clk);
             read_results;
 
-            ok = (results[0] === ec00 && results[1] === ec01 && results[2] === ec02 &&
-                  results[3] === ec10 && results[4] === ec11 && results[5] === ec12 &&
-                  results[6] === ec20 && results[7] === ec21 && results[8] === ec22);
+            // Compare lower 8 bits (uo_out is 8-bit, accumulator is 9-bit)
+            ok = (results[0] === ec00[7:0] && results[1] === ec01[7:0] &&
+                  results[2] === ec10[7:0] && results[3] === ec11[7:0]);
 
             if (!ok) begin
                 $display("FAIL [%s]", label);
-                $display("  got      C00=%0d C01=%0d C02=%0d", results[0], results[1], results[2]);
-                $display("           C10=%0d C11=%0d C12=%0d", results[3], results[4], results[5]);
-                $display("           C20=%0d C21=%0d C22=%0d", results[6], results[7], results[8]);
-                $display("  expected C00=%0d C01=%0d C02=%0d", ec00, ec01, ec02);
-                $display("           C10=%0d C11=%0d C12=%0d", ec10, ec11, ec12);
-                $display("           C20=%0d C21=%0d C22=%0d", ec20, ec21, ec22);
+                $display("  got      C00=%0d C01=%0d", results[0], results[1]);
+                $display("           C10=%0d C11=%0d", results[2], results[3]);
+                $display("  expected C00=%0d C01=%0d", ec00[7:0], ec01[7:0]);
+                $display("           C10=%0d C11=%0d", ec10[7:0], ec11[7:0]);
                 fail_count = fail_count + 1;
             end else begin
                 $display("PASS [%s]", label);
@@ -207,69 +189,72 @@ module tb_vivado;
     // ─────────────────────────────────────────────────────────────
     initial begin
         $timeformat(-9, 1, " ns", 8);
-        $display("=== tt_um_ross_systolic 3x3 testbench start ===");
+        $display("=== tt_um_ross_systolic 2x2 (4-bit) testbench start ===");
+
+        // Verify debug IO configuration after reset
+        do_reset;
+        if (uio_oe !== 8'hFC) begin
+            $display("FAIL [io_oe] expected 0xFC, got 0x%02X", uio_oe);
+            fail_count = fail_count + 1;
+        end else begin
+            $display("PASS [io_oe] uio_oe = 0xFC (debug outputs enabled)");
+            pass_count = pass_count + 1;
+        end
+        if (uio_out !== 8'h00) begin
+            $display("FAIL [io_out] expected 0x00 after reset, got 0x%02X", uio_out);
+            fail_count = fail_count + 1;
+        end else begin
+            $display("PASS [io_out] uio_out = 0x00 after reset");
+            pass_count = pass_count + 1;
+        end
 
         // Test 1: Identity × Identity = Identity
-        run_test(3'd1, 3'd0, 3'd0,
-                 3'd0, 3'd1, 3'd0,
-                 3'd0, 3'd0, 3'd1,
-                 3'd1, 3'd0, 3'd0,
-                 3'd0, 3'd1, 3'd0,
-                 3'd0, 3'd0, 3'd1,
+        run_test(4'd1, 4'd0,
+                 4'd0, 4'd1,
+                 4'd1, 4'd0,
+                 4'd0, 4'd1,
                  "I*I     ");
 
-        // Test 2: All-ones × All-ones
-        run_test(3'd1, 3'd1, 3'd1,
-                 3'd1, 3'd1, 3'd1,
-                 3'd1, 3'd1, 3'd1,
-                 3'd1, 3'd1, 3'd1,
-                 3'd1, 3'd1, 3'd1,
-                 3'd1, 3'd1, 3'd1,
+        // Test 2: All-ones × All-ones (result = 2, fits in 8 bits)
+        run_test(4'd1, 4'd1,
+                 4'd1, 4'd1,
+                 4'd1, 4'd1,
+                 4'd1, 4'd1,
                  "1s*1s   ");
 
-        // Test 3: Maximum inputs (7×7)
-        run_test(3'd7, 3'd7, 3'd7,
-                 3'd7, 3'd7, 3'd7,
-                 3'd7, 3'd7, 3'd7,
-                 3'd7, 3'd7, 3'd7,
-                 3'd7, 3'd7, 3'd7,
-                 3'd7, 3'd7, 3'd7,
-                 "max     ");
+        // Test 3: Near-max inputs that fit in 8 bits (11×11 → 242)
+        run_test(4'd11, 4'd11,
+                 4'd11, 4'd11,
+                 4'd11, 4'd11,
+                 4'd11, 4'd11,
+                 "near-max");
 
         // Test 4: Asymmetric
-        run_test(3'd2, 3'd1, 3'd0,
-                 3'd0, 3'd2, 3'd1,
-                 3'd3, 3'd0, 3'd2,
-                 3'd1, 3'd2, 3'd3,
-                 3'd0, 3'd1, 3'd2,
-                 3'd3, 3'd0, 3'd1,
+        run_test(4'd5, 4'd3,
+                 4'd2, 4'd7,
+                 4'd4, 4'd6,
+                 4'd1, 4'd8,
                  "asym    ");
 
         // Test 5: Zero matrix
-        run_test(3'd0, 3'd0, 3'd0,
-                 3'd0, 3'd0, 3'd0,
-                 3'd0, 3'd0, 3'd0,
-                 3'd3, 3'd2, 3'd1,
-                 3'd1, 3'd2, 3'd3,
-                 3'd0, 3'd1, 3'd2,
+        run_test(4'd0, 4'd0,
+                 4'd0, 4'd0,
+                 4'd9, 4'd12,
+                 4'd3, 4'd7,
                  "0*B     ");
 
         // Test 6: Diagonal scaling
-        run_test(3'd2, 3'd0, 3'd0,
-                 3'd0, 3'd2, 3'd0,
-                 3'd0, 3'd0, 3'd2,
-                 3'd1, 3'd3, 3'd2,
-                 3'd3, 3'd1, 3'd3,
-                 3'd2, 3'd3, 3'd1,
+        run_test(4'd4, 4'd0,
+                 4'd0, 4'd4,
+                 4'd2, 4'd5,
+                 4'd6, 4'd3,
                  "diag    ");
 
         // Test 7: Sparse
-        run_test(3'd3, 3'd0, 3'd0,
-                 3'd0, 3'd0, 3'd0,
-                 3'd0, 3'd0, 3'd0,
-                 3'd2, 3'd1, 3'd0,
-                 3'd0, 3'd0, 3'd0,
-                 3'd0, 3'd0, 3'd0,
+        run_test(4'd8, 4'd0,
+                 4'd0, 4'd0,
+                 4'd5, 4'd3,
+                 4'd0, 4'd0,
                  "sparse  ");
 
         // Summary
