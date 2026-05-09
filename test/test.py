@@ -68,8 +68,8 @@ async def start_compute(dut):
 
 async def read_results(dut):
     """Read 9 results after fixed delay. Returns flat list [C00..C22]."""
-    # Wait for systolic array to finish (~10 cycles) then read 9 outputs
-    await ClockCycles(dut.clk, 10)
+    # Wait for systolic array to finish (~9 cycles) then read 9 outputs
+    await ClockCycles(dut.clk, 9)
     results = []
     for _ in range(9):
         results.append(int(dut.uo_out.value) & 0xFF)
