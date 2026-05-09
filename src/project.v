@@ -203,7 +203,7 @@ module tt_um_ross_systolic (
 		end
 	end
 
-	wire [5:0] result_data =
+wire [5:0] result_data =
     (out_idx == 0)  ? acc00 :
     (out_idx == 1)  ? acc01 :
     (out_idx == 2)  ? acc02 :
@@ -220,27 +220,6 @@ module tt_um_ross_systolic (
     (out_idx == 13) ? acc31 :
     (out_idx == 14) ? acc32 :
                       acc33;
-
-	always @(*) begin
-		case(out_idx)
-			5'd0:  result_data = acc00;
-			5'd1:  result_data = acc01;
-			5'd2:  result_data = acc02;
-			5'd3:  result_data = acc03;
-			5'd4:  result_data = acc10;
-			5'd5:  result_data = acc11;
-			5'd6:  result_data = acc12;
-			5'd7:  result_data = acc13;
-			5'd8:  result_data = acc20;
-			5'd9:  result_data = acc21;
-			5'd10: result_data = acc22;
-			5'd11: result_data = acc23;
-			5'd12: result_data = acc30;
-			5'd13: result_data = acc31;
-			5'd14: result_data = acc32;
-			default: result_data = acc33;
-		endcase
-	end
 
     // -------------------------------------------------------------------------
     // Output assignments
