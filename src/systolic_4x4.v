@@ -37,37 +37,60 @@ module systolic_4x4 (
     // Controller
     // =========================================================================
 
-    localparam CYCLES_TOTAL = 4'd10;
+    localparam CYCLES_TOTAL = 4'd11;
 
     reg [3:0] cycle_cnt;
     reg       active;
+    reg       finish_pending;
 
     always @(posedge clk) begin
         if (rst) begin
-            active    <= 1'b0;
-            cycle_cnt <= 4'd0;
-            busy      <= 1'b0;
-            done      <= 1'b0;
+            active         <= 1'b0;
+            cycle_cnt      <= 4'd0;
+            busy           <= 1'b0;
+            done           <= 1'b0;
+            finish_pending <= 1'b0;
 
         end else begin
 
             done <= 1'b0;
 
-            if (start && !active) begin
-                active    <= 1'b1;
-                cycle_cnt <= 4'd0;
-                busy      <= 1'b1;
+            // -------------------------------------------------------------
+            // Start computation
+            // -------------------------------------------------------------
+            if (start && !active && !finish_pending) begin
+                active         <= 1'b1;
+                cycle_cnt      <= 4'd0;
+                busy           <= 1'b1;
+            end
 
-            end else if (active) begin
+            // -------------------------------------------------------------
+            // Active compute window
+            // -------------------------------------------------------------
+            else if (active) begin
 
                 if (cycle_cnt == (CYCLES_TOTAL - 1'b1)) begin
-                    active <= 1'b0;
-                    busy   <= 1'b0;
-                    done   <= 1'b1;
+
+                    // stop PE updates THIS cycle
+                    active         <= 1'b0;
+
+                    // wait one extra cycle before asserting done
+                    finish_pending <= 1'b1;
 
                 end else begin
                     cycle_cnt <= cycle_cnt + 1'b1;
                 end
+            end
+
+            // -------------------------------------------------------------
+            // Final settle cycle
+            // -------------------------------------------------------------
+            else if (finish_pending) begin
+
+                finish_pending <= 1'b0;
+
+                busy <= 1'b0;
+                done <= 1'b1;
             end
         end
     end
