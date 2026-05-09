@@ -9,11 +9,14 @@ module systolic_pe (
     input  wire [1:0] a_in,
     input  wire [1:0] b_in,
 
-    output reg  [1:0] a_out,
-    output reg  [1:0] b_out,
+    output wire [1:0] a_out,
+    output wire [1:0] b_out,
 
     output reg  [5:0] acc
 );
+
+    assign a_out = a_in;
+    assign b_out = b_in;
 
     wire [3:0] product;
 
@@ -27,14 +30,9 @@ module systolic_pe (
 
     always @(posedge clk) begin
         if (rst) begin
-            a_out <= 2'd0;
-            b_out <= 2'd0;
-            acc   <= 6'd0;
+            acc <= 6'd0;
 
         end else if (clk_en) begin
-
-            a_out <= a_in;
-            b_out <= b_in;
 
             if (clear)
                 acc <= product_ext;

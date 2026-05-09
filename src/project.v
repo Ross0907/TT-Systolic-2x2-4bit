@@ -203,7 +203,23 @@ module tt_um_ross_systolic (
 		end
 	end
 
-	reg [5:0] result_data;
+	wire [5:0] result_data =
+    (out_idx == 0)  ? acc00 :
+    (out_idx == 1)  ? acc01 :
+    (out_idx == 2)  ? acc02 :
+    (out_idx == 3)  ? acc03 :
+    (out_idx == 4)  ? acc10 :
+    (out_idx == 5)  ? acc11 :
+    (out_idx == 6)  ? acc12 :
+    (out_idx == 7)  ? acc13 :
+    (out_idx == 8)  ? acc20 :
+    (out_idx == 9)  ? acc21 :
+    (out_idx == 10) ? acc22 :
+    (out_idx == 11) ? acc23 :
+    (out_idx == 12) ? acc30 :
+    (out_idx == 13) ? acc31 :
+    (out_idx == 14) ? acc32 :
+                      acc33;
 
 	always @(*) begin
 		case(out_idx)
@@ -239,7 +255,7 @@ module tt_um_ross_systolic (
 	assign uio_oe[3:0] = debug ? 4'b1111 : 4'b0000;
 	assign uio_oe[7:4] = 4'b0000;
 	
-	wire _unused = &{ena, 1'b0};
+	wire _unused = &{ena, uio_in[7:3], 1'b0};
 endmodule
 
 `default_nettype wire
