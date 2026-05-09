@@ -1,15 +1,15 @@
 // =============================================================================
-// FILE        : wallace_mult_2x2.v
-// DESCRIPTION : 2×2 unsigned multiplier (direct operator, let synthesizer optimize)
+// FILE        : mult_3x3.v
+// DESCRIPTION : 3×3 unsigned multiplier
 // =============================================================================
 
 `default_nettype none
 `timescale 1ns / 1ps
 
-module wallace_mult_2x2 (
-    input  wire [1:0] a,
-    input  wire [1:0] b,
-    output wire [3:0] p
+module mult_3x3 (
+    input  wire [2:0] a,
+    input  wire [2:0] b,
+    output wire [5:0] p
 );
 
     assign p = a * b;

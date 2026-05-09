@@ -1,9 +1,9 @@
 # Tiny Tapeout project information
 project:
-  title:        "4x4 Systolic Array Matrix Multiplier"
+  title:        "3x3 Systolic Array Matrix Multiplier"
   author:       "Ross"
   discord:      ""
-  description:  "4x4 systolic array with Wallace tree multipliers computing 4x4 matrix multiply with 2-bit elements"
+  description:  "3x3 systolic array computing 3x3 matrix multiply with 3-bit elements"
   language:     "Verilog"
   clock_hz:     0
 
@@ -13,9 +13,9 @@ project:
 
   source_files:
     - "project.v"
-    - "systolic_4x4.v"
+    - "systolic_3x3.v"
     - "systolic_pe.v"
-    - "wallace_mult_2x2.v"
+    - "mult_3x3.v"
 
 pinout:
   ui[0]: "data_byte_bit0"
@@ -33,12 +33,12 @@ pinout:
   uo[3]: "result_data_bit3"
   uo[4]: "result_data_bit4"
   uo[5]: "result_data_bit5"
-  uo[6]: "valid"
-  uo[7]: "busy"
+  uo[6]: "result_data_bit6"
+  uo[7]: "result_data_bit7"
 
   uio[0]: "wren"
   uio[1]: "start"
-  uio[2]: "debug"
+  uio[2]: ""
   uio[3]: ""
   uio[4]: ""
   uio[5]: ""

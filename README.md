@@ -1,8 +1,8 @@
 ![](../../workflows/gds/badge.svg) ![](../../workflows/docs/badge.svg) ![](../../workflows/test/badge.svg) ![](../../workflows/fpga/badge.svg)
 
-# 4×4 Systolic Array Matrix Multiplier
+# 3×3 Systolic Array Matrix Multiplier
 
-A 4×4 systolic array that computes **C = A × B** where A and B are 4×4 matrices with 2-bit unsigned elements. Each Processing Element contains an explicit Wallace tree multiplier for speed. Results are 6-bit accumulators (max 36).
+A 3×3 systolic array that computes **C = A × B** where A and B are 3×3 matrices with 3-bit unsigned elements (values 0–7). Results are 8-bit accumulators (max 147).
 
 - [Read the documentation](docs/info.md)
 
@@ -14,10 +14,10 @@ To learn more and get started, visit https://tinytapeout.com.
 
 ## How it works
 
-- **16 PEs** in a 4×4 grid, each with a 2×2 Wallace tree multiplier + 6-bit accumulator
-- **Skewed input feeding** via a 10-cycle counter
-- **Byte-serial loading**: load 8 bytes (4 for A + 4 for B), then pulse `start`
-- **Serial output**: 16 results streamed over 16 clock cycles
+- **9 PEs** in a 3×3 grid, each with a 3×3 multiplier + 8-bit accumulator
+- **Skewed input feeding** via an 8-cycle counter
+- **Byte-serial loading**: load 10 bytes (5 for A + 5 for B), then pulse `start`
+- **Serial output**: 9 results streamed over 9 clock cycles
 
 See [docs/info.md](docs/info.md) for the full pinout and protocol description.
 
@@ -29,14 +29,14 @@ cd TT_Systolic_
 iverilog -g2012 -Wall -o sim.out \
   test/tb_vivado.v \
   src/project.v \
-  src/systolic_4x4.v \
+  src/systolic_3x3.v \
   src/systolic_pe.v \
-  src/wallace_mult_2x2.v
+  src/mult_3x3.v
 vvp sim.out
 ```
 
 ### Vivado
-1. Add `src/wallace_mult_2x2.v`, `src/systolic_pe.v`, `src/systolic_4x4.v`, `src/project.v`
+1. Add `src/mult_3x3.v`, `src/systolic_pe.v`, `src/systolic_3x3.v`, `src/project.v`
 2. Add `test/tb_vivado.v` as simulation top
 3. Run Behavioral Simulation, then in Tcl console: `run 5000ns`
 
@@ -44,7 +44,7 @@ vvp sim.out
 ```bash
 cd TT_Systolic_/test
 pip install -r requirements.txt
-make
+python run_tests.py
 ```
 
 ## Project structure
@@ -52,10 +52,9 @@ make
 | File | Description |
 |------|-------------|
 | `src/project.v` | Tiny Tapeout top module (`tt_um_ross_systolic`) |
-| `src/systolic_4x4.v` | 4×4 systolic grid with skewed input controller |
-| `src/systolic_pe.v` | Processing element (Wallace mult + 6-bit accumulator) |
-| `src/wallace_mult_2x2.v` | Explicit 2×2 Wallace tree multiplier |
-| `test/tb.v` | cocotb testbench |
+| `src/systolic_3x3.v` | 3×3 systolic grid with skewed input controller |
+| `src/systolic_pe.v` | Processing element (3×3 mult + 8-bit accumulator) |
+| `src/mult_3x3.v` | 3×3 unsigned multiplier |
 | `test/tb_vivado.v` | Self-checking Vivado testbench (7 test cases) |
 | `test/test.py` | cocotb Python tests |
 
