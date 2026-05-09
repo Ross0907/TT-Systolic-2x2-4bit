@@ -1,8 +1,10 @@
 ![](../../workflows/gds/badge.svg) ![](../../workflows/docs/badge.svg) ![](../../workflows/test/badge.svg) ![](../../workflows/fpga/badge.svg)
 
-# Tiny Tapeout Verilog Project Template
+# 4×4 Systolic Array Matrix Multiplier
 
-- [Read the documentation for project](docs/info.md)
+A 4×4 systolic array that computes **C = A × B** where A and B are 4×4 matrices with 2-bit unsigned elements. Each Processing Element contains an explicit Wallace tree multiplier for speed. Results are 6-bit accumulators (max 36).
+
+- [Read the documentation](docs/info.md)
 
 ## What is Tiny Tapeout?
 
@@ -10,33 +12,61 @@ Tiny Tapeout is an educational project that aims to make it easier and cheaper t
 
 To learn more and get started, visit https://tinytapeout.com.
 
-## Set up your Verilog project
+## How it works
 
-1. Add your Verilog files to the `src` folder.
-2. Edit the [info.yaml](info.yaml) and update information about your project, paying special attention to the `source_files` and `top_module` properties. If you are upgrading an existing Tiny Tapeout project, check out our [online info.yaml migration tool](https://tinytapeout.github.io/tt-yaml-upgrade-tool/).
-3. Edit [docs/info.md](docs/info.md) and add a description of your project.
-4. Adapt the testbench to your design. See [test/README.md](test/README.md) for more information.
+- **16 PEs** in a 4×4 grid, each with a 2×2 Wallace tree multiplier + 6-bit accumulator
+- **Skewed input feeding** via a 10-cycle counter
+- **Byte-serial loading**: load 8 bytes (4 for A + 4 for B), then pulse `start`
+- **Serial output**: 16 results streamed over 16 clock cycles
 
-The GitHub action will automatically build the ASIC files using [LibreLane](https://www.zerotoasiccourse.com/terminology/librelane/).
+See [docs/info.md](docs/info.md) for the full pinout and protocol description.
 
-## Enable GitHub actions to build the results page
+## Simulation
 
-- [Enabling GitHub Pages](https://tinytapeout.com/faq/#my-github-action-is-failing-on-the-pages-part)
+### iverilog (command line)
+```bash
+cd TT_Systolic_
+iverilog -g2012 -Wall -o sim.out \
+  test/tb_vivado.v \
+  src/project.v \
+  src/systolic_4x4.v \
+  src/systolic_pe.v \
+  src/wallace_mult_2x2.v
+vvp sim.out
+```
+
+### Vivado
+1. Add `src/wallace_mult_2x2.v`, `src/systolic_pe.v`, `src/systolic_4x4.v`, `src/project.v`
+2. Add `test/tb_vivado.v` as simulation top
+3. Run Behavioral Simulation, then in Tcl console: `run 5000ns`
+
+### cocotb
+```bash
+cd TT_Systolic_/test
+pip install -r requirements.txt
+make
+```
+
+## Project structure
+
+| File | Description |
+|------|-------------|
+| `src/project.v` | Tiny Tapeout top module (`tt_um_ross_systolic`) |
+| `src/systolic_4x4.v` | 4×4 systolic grid with skewed input controller |
+| `src/systolic_pe.v` | Processing element (Wallace mult + 6-bit accumulator) |
+| `src/wallace_mult_2x2.v` | Explicit 2×2 Wallace tree multiplier |
+| `test/tb.v` | cocotb testbench |
+| `test/tb_vivado.v` | Self-checking Vivado testbench (7 test cases) |
+| `test/test.py` | cocotb Python tests |
 
 ## Resources
 
 - [FAQ](https://tinytapeout.com/faq/)
 - [Digital design lessons](https://tinytapeout.com/digital_design/)
-- [Learn how semiconductors work](https://tinytapeout.com/siliwiz/)
 - [Join the community](https://tinytapeout.com/discord)
 - [Build your design locally](https://www.tinytapeout.com/guides/local-hardening/)
 
 ## What next?
 
-- [Submit your design to the next shuttle](https://app.tinytapeout.com/).
-- Edit [this README](README.md) and explain your design, how it works, and how to test it.
-- Share your project on your social network of choice:
-  - LinkedIn [#tinytapeout](https://www.linkedin.com/search/results/content/?keywords=%23tinytapeout) [@TinyTapeout](https://www.linkedin.com/company/100708654/)
-  - Mastodon [#tinytapeout](https://chaos.social/tags/tinytapeout) [@matthewvenn](https://chaos.social/@matthewvenn)
-  - X (formerly Twitter) [#tinytapeout](https://twitter.com/hashtag/tinytapeout) [@tinytapeout](https://twitter.com/tinytapeout)
-  - Bluesky [@tinytapeout.com](https://bsky.app/profile/tinytapeout.com)
+- [Submit your design to the next shuttle](https://app.tinytapeout.com/)
+- Share your project on social media with #tinytapeout

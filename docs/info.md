@@ -1,15 +1,17 @@
-# 2×2 Systolic Array Matrix Multiplier
+# 4×4 Systolic Array Matrix Multiplier
 
 ## Overview
 
-This project implements a **2×2 systolic array** that computes the matrix product  
-**C = A × B**, where A and B are 2×2 matrices with 2-bit elements (values 0–3).  
-Each result element is a 5-bit accumulator (maximum value = 18 = 3×3 + 3×3).
+This project implements a **4×4 systolic array** that computes the matrix product  
+**C = A × B**, where A and B are 4×4 matrices with 2-bit unsigned elements (values 0–3).  
+Each result element is a 6-bit accumulator (maximum value = 36 = 4 × 3×3).
 
-The design was ported from a Nexys 4 DDR FPGA demo that used manual clock-stepping  
-buttons. In the Tiny Tapeout version the array runs free-running at full clock speed  
-(one complete multiply every 5 clock cycles), and results are serialised onto the  
-8-bit output bus.
+Each Processing Element (PE) contains an explicit **Wallace tree multiplier** for fast  
+partial-product generation. The array uses skewed input feeding controlled by a cycle  
+counter, completing one full 4×4 multiply in 10 clock cycles.
+
+Matrix data is loaded serially via a byte-streaming protocol, and the 16 results are  
+streamed out serially over 16 clock cycles.
 
 ---
 
@@ -17,93 +19,98 @@ buttons. In the Tiny Tapeout version the array runs free-running at full clock s
 
 ### Processing Element (PE)
 
-Each PE performs one MAC per clock cycle:
+Each PE performs one MAC per active clock cycle:
 
 ```
-acc = acc + (a_in × b_in)
+acc = clear ? (a_in × b_in) : acc + (a_in × b_in)
 ```
 
 `a_in` propagates **right** to the next column PE; `b_in` propagates **down** to the  
-next row PE. The 2-bit operands are zero-extended to avoid truncation before  
-multiplication, giving a 5-bit accumulator.
+next row PE. Each PE contains a dedicated 2×2 Wallace tree multiplier producing a  
+4-bit product, which is zero-extended to 6 bits before accumulation.
 
-### 2×2 PE Grid
+### 4×4 PE Grid
 
-```
-         col 0        col 1
-row 0  [PE(0,0)] --> [PE(0,1)]
-           |               |
-row 1  [PE(1,0)] --> [PE(1,1)]
-```
+Sixteen PEs are arranged in a 4×4 grid. Data flows into the left edge (A elements)  
+and top edge (B elements), then propagates rightward and downward through the array.
 
-The state machine feeds skewed data into the grid so each PE sees the correct  
-A-row and B-column operands in the correct pipeline stage:
+The controller uses a 10-cycle counter (t = 0 … 9) with skewed feeding:
 
-| Cycle | State | PE(0,0)        | PE(0,1)       | PE(1,0)       | PE(1,1)       |
-|-------|-------|----------------|---------------|---------------|---------------|
-| 1     | CY1   | a00 × b00 ✓    | 0 × 0         | 0 × 0         | 0 × 0         |
-| 2     | CY2   | += a01 × b10 ✓ | a00 × b01     | a10 × b00     | 0 × 0         |
-| 3     | CY3   | 0              | += a01×b11 ✓  | += a11×b10 ✓  | a10 × b01     |
-| 4     | FLUSH | 0              | 0             | 0             | += a11×b11 ✓  |
-| 5     | IDLE  | *(next run)*   | —             | —             | —             |
+| t | feed_a0 | feed_a1 | feed_a2 | feed_a3 | feed_b0 | feed_b1 | feed_b2 | feed_b3 |
+|---|---------|---------|---------|---------|---------|---------|---------|---------|
+| 0 | a00     | —       | —       | —       | b00     | b01     | b02     | b03     |
+| 1 | a01     | a10     | —       | —       | b10     | b11     | b12     | b13     |
+| 2 | a02     | a11     | a20     | —       | b20     | b21     | b22     | b23     |
+| 3 | a03     | a12     | a21     | a30     | b30     | b31     | b32     | b33     |
+| 4 | —       | a13     | a22     | a31     | —       | —       | —       | —       |
+| 5 | —       | —       | a23     | a32     | —       | —       | —       | —       |
+| 6 | —       | —       | —       | a33     | —       | —       | —       | —       |
+| 7 | flush   | flush   | flush   | flush   | flush   | flush   | flush   | flush   |
+| 8 | flush   | flush   | flush   | flush   | flush   | flush   | flush   | flush   |
+| 9 | done    | done    | done    | done    | done    | done    | done    | done    |
 
-✓ = accumulation complete for that element.
+PE(i,j) receives its first useful operands at t = i + j and accumulates for 4 cycles.
+All accumulators are stable by t = 9, when `done` is asserted.
 
 ### IO Protocol
 
-| Pin group | Direction | Meaning |
-|-----------|-----------|---------|
-| `ui_in[1:0]`   | input  | `a00` – Matrix A element [0,0] |
-| `ui_in[3:2]`   | input  | `a01` – Matrix A element [0,1] |
-| `ui_in[5:4]`   | input  | `a10` – Matrix A element [1,0] |
-| `ui_in[7:6]`   | input  | `a11` – Matrix A element [1,1] |
-| `uio[1:0]`     | input  | `b00` – Matrix B element [0,0] |
-| `uio[3:2]`     | input  | `b01` – Matrix B element [0,1] |
-| `uio[5:4]`     | input  | `b10` – Matrix B element [1,0] |
-| `uio[7:6]`     | input  | `b11` – Matrix B element [1,1] |
-| `uo_out[4:0]`  | output | Selected 5-bit result |
-| `uo_out[6:5]`  | output | Result selector (00→C00, 01→C01, 10→C10, 11→C11) |
-| `uo_out[7]`    | output | `done` – HIGH for 4 cycles while results are valid |
+| Pin | Direction | Function |
+|-----|-----------|----------|
+| `ui_in[7:0]`  | input  | Data byte to load |
+| `uio_in[0]`   | input  | `wren` — write enable, loads `ui_in` into next matrix byte |
+| `uio_in[1]`   | input  | `start` — pulse HIGH to begin computation |
+| `uio_in[2]`   | input  | `debug` — HIGH enables debug output on `uio_out[3:0]` |
+| `uo_out[5:0]` | output | Result data (6-bit matrix element) |
+| `uo_out[6]`   | output | `valid` — HIGH when `uo_out[5:0]` is a valid result |
+| `uo_out[7]`   | output | `busy` — HIGH during compute and output phases |
+| `uio_out[3:0]`| output | Debug: current result index (0–15) when `debug=1` |
+| `uio_oe`      | output | `8'h0F` when `debug=1`, else `8'h00` |
 
-All bidirectional (`uio`) pins are permanently configured as **inputs** (`uio_oe = 0`).
+### Operation Steps
+
+1. **Reset** — hold `rst_n` LOW for ≥4 cycles, then release.
+2. **Load** — drive each of 8 bytes on `ui_in` and pulse `uio_in[0]` (wren) HIGH:
+   - Byte 0: `{a03,a02,a01,a00}`
+   - Byte 1: `{a13,a12,a11,a10}`
+   - Byte 2: `{a23,a22,a21,a20}`
+   - Byte 3: `{a33,a32,a31,a30}`
+   - Byte 4: `{b03,b02,b01,b00}`
+   - Byte 5: `{b13,b12,b11,b10}`
+   - Byte 6: `{b23,b22,b21,b20}`
+   - Byte 7: `{b33,b32,b31,b30}`
+3. **Start** — pulse `uio_in[1]` (start) HIGH for one cycle.
+4. **Read** — wait for `uo_out[6]` (`valid`) to go HIGH, then read `uo_out[5:0]` for  
+   **16 consecutive cycles**: C[0][0], C[0][1], …, C[3][3].
 
 ---
 
 ## How to test
 
-### Using the Tiny Tapeout dev board
-
-1. Configure the RP2040 to drive a ~10 MHz clock on `clk`.
-2. Use the board's input DIP switches / PMOD headers to set:
-   - `ui_in` = Matrix A elements (2 bits each at positions [1:0], [3:2], [5:4], [7:6])
-   - `uio` = Matrix B elements (same encoding)
-3. Toggle `rst_n` low → high to start a computation.
-4. Watch `uo_out[7]` — when it goes HIGH, read four consecutive bytes:
-   - Byte 0: `uo_out[6:5]=00`, `uo_out[4:0]` = C[0][0]
-   - Byte 1: `uo_out[6:5]=01`, `uo_out[4:0]` = C[0][1]
-   - Byte 2: `uo_out[6:5]=10`, `uo_out[4:0]` = C[1][0]
-   - Byte 3: `uo_out[6:5]=11`, `uo_out[4:0]` = C[1][1]
-
 ### Quick sanity checks
 
-| Test | ui_in | uio_in | Expected C |
-|------|-------|--------|------------|
-| Identity | `0x41` (`01_00_00_01`) | `0x41` | [1, 0, 0, 1] |
-| All-ones | `0x55` (`01_01_01_01`) | `0x55` | [2, 2, 2, 2] |
-| Maximum | `0xFF` | `0xFF` | [18, 18, 18, 18] |
-| Mixed | `0x27` (A=[[3,1],[2,0]]) | `0x4B` (B=[[3,0],[1,2]]) | compute manually |
+| Test | Bytes to load (hex) | Expected C |
+|------|---------------------|------------|
+| Identity | `01 04 10 40 01 04 10 40` | diagonal = 1, rest = 0 |
+| All-ones | `55 55 55 55 55 55 55 55` | all elements = 4 |
+| Maximum  | `FF FF FF FF FF FF FF FF` | all elements = 36 |
 
-### Using Vivado simulation
+### Vivado simulation
 
-See `test/tb_vivado.v` — add all source files and `tb_vivado.v` to a Vivado project,  
-set `tb_vivado` as the simulation top, and run for 2000 ns.  All 8 self-checking  
-test cases print PASS/FAIL to the Tcl console.
+Add these source files to a Vivado project:
+- `src/wallace_mult_2x2.v`
+- `src/systolic_pe.v`
+- `src/systolic_4x4.v`
+- `src/project.v`
 
-### Using cocotb (Linux / WSL)
+Add `test/tb_vivado.v` as a simulation source, **set it as Top**, and run Behavioral  
+Simulation. In the Tcl console: `run 5000ns`. All 7 self-checking test cases print  
+PASS/FAIL to the transcript.
+
+### cocotb (Linux / WSL / GitHub Actions)
 
 ```bash
-pip install cocotb pytest
-sudo apt install iverilog
+pip install -r test/requirements.txt
 cd test && make
-gtkwave tb.vcd     # visualise waveforms
 ```
+
+Results are checked in `test/results.xml`. Waveforms are written to `test/tb.fst`.

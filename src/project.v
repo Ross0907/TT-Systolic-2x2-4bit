@@ -4,6 +4,7 @@
  */
 
 `default_nettype none
+`timescale 1ns / 1ps
 
 // =============================================================================
 // Tiny Tapeout Top
@@ -111,9 +112,10 @@ module tt_um_ross_systolic (
     wire busy_core;
 
     systolic_4x4 core (
-        .clk(clk),
-        .rst(rst),
-        .start(start),
+        .clk    (clk),
+        .rst    (rst),
+        .clk_en (1'b1),
+        .start  (start),
 
         .a00(a00), .a01(a01), .a02(a02), .a03(a03),
         .a10(a10), .a11(a11), .a12(a12), .a13(a13),
@@ -130,82 +132,67 @@ module tt_um_ross_systolic (
         .acc20(acc20), .acc21(acc21), .acc22(acc22), .acc23(acc23),
         .acc30(acc30), .acc31(acc31), .acc32(acc32), .acc33(acc33),
 
-        .done(done_pulse),
-        .busy(busy_core)
+        .done   (done_pulse),
+        .busy   (busy_core)
     );
 
     // =========================================================================
     // Output serializer
     // =========================================================================
 
+    reg [5:0] result_mem [0:15];
     reg [4:0] out_idx;
     reg       out_valid;
     reg       out_busy;
+    reg       capture_done;
 
     always @(posedge clk) begin
         if (rst) begin
-            out_idx   <= 5'd0;
-            out_valid <= 1'b0;
-            out_busy  <= 1'b0;
-
+            out_valid    <= 1'b0;
+            out_busy     <= 1'b0;
+            out_idx      <= 5'd0;
+            capture_done <= 1'b0;
         end else begin
+            capture_done <= done_pulse;
 
-            if (done_pulse) begin
-                out_idx   <= 5'd0;
+            if (capture_done) begin
+                // Latch all 16 results (one cycle after done_pulse so accs are stable)
+                result_mem[0]  <= acc00;  result_mem[1]  <= acc01;
+                result_mem[2]  <= acc02;  result_mem[3]  <= acc03;
+                result_mem[4]  <= acc10;  result_mem[5]  <= acc11;
+                result_mem[6]  <= acc12;  result_mem[7]  <= acc13;
+                result_mem[8]  <= acc20;  result_mem[9]  <= acc21;
+                result_mem[10] <= acc22;  result_mem[11] <= acc23;
+                result_mem[12] <= acc30;  result_mem[13] <= acc31;
+                result_mem[14] <= acc32;  result_mem[15] <= acc33;
                 out_valid <= 1'b1;
                 out_busy  <= 1'b1;
-
+                out_idx   <= 5'd0;
             end else if (out_valid) begin
-
                 if (out_idx == 5'd15) begin
                     out_valid <= 1'b0;
                     out_busy  <= 1'b0;
                 end else begin
                     out_idx <= out_idx + 5'd1;
                 end
+            end else if (busy_core) begin
+                out_busy <= 1'b1;
             end else begin
-                out_busy <= busy_core;
+                out_busy <= 1'b0;
             end
         end
     end
 
-    reg [5:0] result_data;
-
-    always @(*) begin
-        case (out_idx)
-
-            5'd0:  result_data = acc00;
-            5'd1:  result_data = acc01;
-            5'd2:  result_data = acc02;
-            5'd3:  result_data = acc03;
-
-            5'd4:  result_data = acc10;
-            5'd5:  result_data = acc11;
-            5'd6:  result_data = acc12;
-            5'd7:  result_data = acc13;
-
-            5'd8:  result_data = acc20;
-            5'd9:  result_data = acc21;
-            5'd10: result_data = acc22;
-            5'd11: result_data = acc23;
-
-            5'd12: result_data = acc30;
-            5'd13: result_data = acc31;
-            5'd14: result_data = acc32;
-
-            default: result_data = acc33;
-        endcase
-    end
+    wire [5:0] result_data = out_valid ? result_mem[out_idx] : 6'd0;
 
     assign uo_out[5:0] = result_data;
     assign uo_out[6]   = out_valid;
-    assign uo_out[7]   = out_busy | busy_core;
+    assign uo_out[7]   = out_busy || busy_core;
 
     assign uio_out[3:0] = debug ? out_idx[3:0] : 4'b0000;
     assign uio_out[7:4] = 4'b0000;
 
-    assign uio_oe[3:0] = debug ? 4'b1111 : 4'b0000;
-    assign uio_oe[7:4] = 4'b0000;
+    assign uio_oe = debug ? 8'h0F : 8'h00;
 
     wire _unused = &{ena, uio_in[7:3], 1'b0};
 
