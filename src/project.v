@@ -172,50 +172,60 @@ module tt_um_ross_systolic (
     // -------------------------------------------------------------------------
     // Result latch and output serializer
     // -------------------------------------------------------------------------
-    reg [5:0] result_mem [0:15];
+
     reg [4:0] out_idx;
     reg       out_valid;
     reg       out_busy;
-    reg       capture_done;   // delayed done_pulse for reliable capture
 
-    always @(posedge clk) begin
-        if (rst) begin
-            out_valid     <= 1'b0;
-            out_busy      <= 1'b0;
-            out_idx       <= 5'd0;
-            capture_done  <= 1'b0;
-        end else begin
-            capture_done <= done_pulse;
 
-            if (capture_done) begin
-                // Latch all 16 results (one cycle after done_pulse so accs are stable)
-                result_mem[0]  <= acc00;  result_mem[1]  <= acc01;
-                result_mem[2]  <= acc02;  result_mem[3]  <= acc03;
-                result_mem[4]  <= acc10;  result_mem[5]  <= acc11;
-                result_mem[6]  <= acc12;  result_mem[7]  <= acc13;
-                result_mem[8]  <= acc20;  result_mem[9]  <= acc21;
-                result_mem[10] <= acc22;  result_mem[11] <= acc23;
-                result_mem[12] <= acc30;  result_mem[13] <= acc31;
-                result_mem[14] <= acc32;  result_mem[15] <= acc33;
-                out_valid <= 1'b1;
-                out_busy  <= 1'b1;
-                out_idx   <= 5'd0;
-            end else if (out_valid) begin
-                if (out_idx == 5'd15) begin
-                    out_valid <= 1'b0;
-                    out_busy  <= 1'b0;
-                end else begin
-                    out_idx <= out_idx + 5'd1;
-                end
-            end else if (busy_core) begin
-                out_busy <= 1'b1;
-            end else begin
-                out_busy <= 1'b0;
-            end
-        end
-    end
+	always @(posedge clk) begin
+		if (rst) begin
+			out_valid <= 0;
+			out_busy  <= 0;
+			out_idx   <= 0;
+		end else begin
 
-    wire [5:0] result_data = out_valid ? result_mem[out_idx] : 6'd0;
+			if (done_pulse) begin
+				out_valid <= 1;
+				out_busy  <= 1;
+				out_idx   <= 0;
+
+			end else if (out_valid) begin
+
+				if (out_idx == 15) begin
+					out_valid <= 0;
+					out_busy  <= 0;
+				end else begin
+					out_idx <= out_idx + 1;
+				end
+			end else begin
+				out_busy <= busy_core;
+			end
+		end
+	end
+
+	reg [5:0] result_data;
+
+	always @(*) begin
+		case(out_idx)
+			5'd0:  result_data = acc00;
+			5'd1:  result_data = acc01;
+			5'd2:  result_data = acc02;
+			5'd3:  result_data = acc03;
+			5'd4:  result_data = acc10;
+			5'd5:  result_data = acc11;
+			5'd6:  result_data = acc12;
+			5'd7:  result_data = acc13;
+			5'd8:  result_data = acc20;
+			5'd9:  result_data = acc21;
+			5'd10: result_data = acc22;
+			5'd11: result_data = acc23;
+			5'd12: result_data = acc30;
+			5'd13: result_data = acc31;
+			5'd14: result_data = acc32;
+			default: result_data = acc33;
+		endcase
+	end
 
     // -------------------------------------------------------------------------
     // Output assignments
@@ -225,9 +235,8 @@ module tt_um_ross_systolic (
     assign uo_out[7]   = out_busy || busy_core;
 
     // Debug output on bidir pins
-    assign uio_out[3:0] = debug ? out_idx[3:0] : 4'b0000;
-    assign uio_out[7:4] = 4'b0000;
-    assign uio_oe       = debug ? 8'h0F : 8'h00;
+	assign uio_out = 8'b0;
+	assign uio_oe  = 8'b0;
 
     // Suppress unused-signal warnings
     wire _unused = &{ena, uio_in[7:3], 1'b0};
