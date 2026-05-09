@@ -50,6 +50,8 @@ module tt_um_ross_systolic (
         end else if (wren) begin
             mat_reg[byte_addr] <= ui_in;
             byte_addr <= byte_addr + 4'd1;
+        end else if (start) begin
+            byte_addr <= 4'd0;
         end
     end
 
