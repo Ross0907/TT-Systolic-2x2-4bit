@@ -1,7 +1,7 @@
 // =============================================================================
 // FILE        : tb_vivado.v
 // DESCRIPTION : Self-checking Verilog testbench for tt_um_ross_systolic
-//               2×2 Systolic Array Matrix Multiplier (4-bit elements)
+//               2×2 Systolic Array Matrix Multiplier (signed 4-bit elements)
 //
 // HOW TO USE IN VIVADO
 // ────────────────────
@@ -65,21 +65,28 @@ module tb_vivado;
     integer pass_count = 0;
     integer fail_count = 0;
 
-    // Pack two 4-bit elements into one byte: {e1[3:0], e0[3:0]}
+    // Pack two signed 4-bit elements into one byte: {e1[3:0], e0[3:0]}
     function [7:0] pack2_4bit;
-        input [3:0] e0, e1;
+        input signed [3:0] e0, e1;
         begin
-            pack2_4bit = {e1, e0};
+            pack2_4bit = {e1[3:0], e0[3:0]};
         end
     endfunction
 
-    // Reference 2×2 matrix multiply element (9-bit internal, compare lower 8 bits)
-    function [8:0] ref_elem;
-        input [3:0] a0, a1;
-        input [3:0] b0, b1;
+    // Reference 2×2 matrix multiply element (signed 9-bit, compare lower 8 bits)
+    function signed [8:0] ref_elem;
+        input signed [3:0] a0, a1;
+        input signed [3:0] b0, b1;
         begin
-            ref_elem = ({4'b0, a0} * {4'b0, b0}) +
-                       ({4'b0, a1} * {4'b0, b1});
+            ref_elem = (a0 * b0) + (a1 * b1);
+        end
+    endfunction
+
+    // Check if signed 9-bit value overflows 8-bit signed range
+    function overflow_8bit;
+        input signed [8:0] val;
+        begin
+            overflow_8bit = (val > 127) || (val < -128);
         end
     endfunction
 
@@ -139,8 +146,8 @@ module tb_vivado;
         input [3:0] b00, b01;
         input [3:0] b10, b11;
         input [63:0] label;
-        reg [8:0] ec00, ec01;
-        reg [8:0] ec10, ec11;
+        reg signed [8:0] ec00, ec01;
+        reg signed [8:0] ec10, ec11;
         reg ok;
         begin
             // Expected results (9-bit)
@@ -169,6 +176,31 @@ module tb_vivado;
             ok = (results[0] === ec00[7:0] && results[1] === ec01[7:0] &&
                   results[2] === ec10[7:0] && results[3] === ec11[7:0]);
 
+            // Check debug pins after result stream completes
+            // any_negative = uio_out[7], overflow_8bit = uio_out[6]
+            begin
+                reg exp_any_neg;
+                reg exp_overflow;
+                reg dbg_ok;
+                exp_any_neg = (ec00 < 0) || (ec01 < 0) || (ec10 < 0) || (ec11 < 0);
+                exp_overflow = overflow_8bit(ec00) || overflow_8bit(ec01) ||
+                                overflow_8bit(ec10) || overflow_8bit(ec11);
+                // uio_out: [7]=any_neg, [6]=overflow, [5]=done, [4]=busy, [3]=valid, [2]=core_busy
+                // After read_results, out_valid should be 0, out_busy should be 0
+                // done_pulse is only 1 cycle, so it's 0 now
+                // busy_core should be 0
+                dbg_ok = (uio_out[7] === exp_any_neg) &&
+                         (uio_out[6] === exp_overflow) &&
+                         (uio_out[4] === 1'b0) &&   // out_busy = 0 after streaming
+                         (uio_out[3] === 1'b0) &&   // out_valid = 0 after streaming
+                         (uio_out[2] === 1'b0);     // busy_core = 0 after done
+                if (!dbg_ok) begin
+                    $display("  DEBUG PIN MISMATCH any_neg=%b(exp %b) overflow=%b(exp %b) uio_out=0x%02X",
+                             uio_out[7], exp_any_neg, uio_out[6], exp_overflow, uio_out);
+                    ok = 1'b0;
+                end
+            end
+
             if (!ok) begin
                 $display("FAIL [%s]", label);
                 $display("  got      C00=%0d C01=%0d", results[0], results[1]);
@@ -188,7 +220,7 @@ module tb_vivado;
     // ─────────────────────────────────────────────────────────────
     initial begin
         $timeformat(-9, 1, " ns", 8);
-        $display("=== tt_um_ross_systolic 2x2 (4-bit) testbench start ===");
+        $display("=== tt_um_ross_systolic 2x2 (signed 4-bit) testbench start ===");
 
         // Verify debug IO configuration after reset
         do_reset;
@@ -221,18 +253,18 @@ module tb_vivado;
                  4'd1, 4'd1,
                  "1s*1s   ");
 
-        // Test 3: Near-max inputs that fit in 8 bits (11×11 → 242)
-        run_test(4'd11, 4'd11,
-                 4'd11, 4'd11,
-                 4'd11, 4'd11,
-                 4'd11, 4'd11,
-                 "near-max");
+        // Test 3: Max positive inputs (7×7 → 98, fits in 8-bit signed)
+        run_test(4'sd7, 4'sd7,
+                 4'sd7, 4'sd7,
+                 4'sd7, 4'sd7,
+                 4'sd7, 4'sd7,
+                 "max-pos ");
 
         // Test 4: Asymmetric
         run_test(4'd5, 4'd3,
                  4'd2, 4'd7,
                  4'd4, 4'd6,
-                 4'd1, 4'd8,
+                 4'd1, 4'd7,
                  "asym    ");
 
         // Test 5: Zero matrix
@@ -249,12 +281,19 @@ module tb_vivado;
                  4'd6, 4'd3,
                  "diag    ");
 
-        // Test 7: Sparse
-        run_test(4'd8, 4'd0,
-                 4'd0, 4'd0,
-                 4'd5, 4'd3,
-                 4'd0, 4'd0,
-                 "sparse  ");
+        // Test 7: Mixed signs (3, -4, 5, 6) × (1, 2, -3, 4)
+        run_test(4'sd3,  -4'sd4,
+                 4'sd5,   4'sd6,
+                 4'sd1,   4'sd2,
+                 -4'sd3,  4'sd4,
+                 "mixed-sg");
+
+        // Test 8: Overflow test — (-8)×(-8) + (-8)×(-8) = 128 (> +127)
+        run_test(-4'sd8, -4'sd8,
+                 4'sd0,   4'sd0,
+                 -4'sd8,  4'sd0,
+                 4'sd0,   4'sd0,
+                 "overflow");
 
         // Summary
         $display("===========================================");

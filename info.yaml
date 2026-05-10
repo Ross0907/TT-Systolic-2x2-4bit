@@ -3,7 +3,7 @@ project:
   title:        "2x2 Systolic Array Matrix Multiplier"
   author:       "Ross"
   discord:      ""
-  description:  "2x2 systolic array computing 2x2 matrix multiply with 4-bit elements"
+  description:  "2x2 systolic array computing 2x2 signed matrix multiply with 4-bit signed elements"
   language:     "Verilog"
   clock_hz:     0
 
@@ -18,6 +18,7 @@ project:
     - "mult_4x4.v"
 
 pinout:
+  # Dedicated inputs: 8-bit matrix data bytes
   ui[0]: "data_byte_bit0"
   ui[1]: "data_byte_bit1"
   ui[2]: "data_byte_bit2"
@@ -27,6 +28,7 @@ pinout:
   ui[6]: "data_byte_bit6"
   ui[7]: "data_byte_bit7"
 
+  # Dedicated outputs: 8-bit result data (lower bits of 9-bit accumulator)
   uo[0]: "result_data_bit0"
   uo[1]: "result_data_bit1"
   uo[2]: "result_data_bit2"
@@ -36,14 +38,15 @@ pinout:
   uo[6]: "result_data_bit6"
   uo[7]: "result_data_bit7"
 
-  uio[0]: "wren"
-  uio[1]: "start"
-  uio[2]: ""
-  uio[3]: ""
-  uio[4]: ""
-  uio[5]: ""
-  uio[6]: ""
-  uio[7]: ""
+  # Bidirectional: [1:0] = inputs, [7:2] = outputs (uio_oe = 8'hFC)
+  uio[0]: "wren"           # Input:  write enable for loading ui_in into matrix
+  uio[1]: "start"          # Input:  begin computation (gated by !busy and ena)
+  uio[2]: "busy_core"      # Output: systolic array is actively computing
+  uio[3]: "out_valid"      # Output: uo_out contains valid result data
+  uio[4]: "out_busy"       # Output: output serializer is active (4-cycle stream)
+  uio[5]: "done_pulse"     # Output: one-cycle pulse when computation completes
+  uio[6]: "overflow_8bit"   # Output: 1 if 9-bit accumulator exceeds 8-bit signed range
+  uio[7]: "any_negative"    # Output: high if ANY of the 4 results is negative
 
 # Do not change!
 yaml_version: 6

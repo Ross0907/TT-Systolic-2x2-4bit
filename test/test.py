@@ -1,6 +1,6 @@
 """
 cocotb tests for tt_um_ross_systolic – 2×2 Systolic Array Matrix Multiplier
-(4-bit elements, 9-bit internal accumulators, 8-bit output)
+(signed 4-bit elements, 9-bit internal accumulators, 8-bit two's complement output)
 ============================================================================
 
 Run with:  cd test && python run_tests.py
@@ -8,8 +8,8 @@ Requires:  iverilog, cocotb, pytest
 
 Output protocol (uo_out):
   [7:0] = result_data – lower 8 bits of 9-bit accumulator
-  Note: max theoretical result = 450 (0x1C2), so bit 8 may be set for
-        extreme inputs. Results > 255 will appear modulo 256.
+  Note: max theoretical result = 98 (0x62) for all +7 inputs.
+        Negative results appear as 8-bit two's complement on uo_out.
 
 Control (uio_in):
   [0] = wren  – load ui_in into next matrix byte
@@ -28,7 +28,7 @@ from cocotb.triggers import RisingEdge, ClockCycles
 
 def pack2_4bit(e0, e1):
     """Pack two 4-bit elements into a byte: {e1[3:0], e0[3:0]}"""
-    return (e1 << 4) | e0
+    return ((e1 & 0xF) << 4) | (e0 & 0xF)
 
 
 def matmul_2x2(A, B):
@@ -83,7 +83,10 @@ async def read_results(dut):
 
 async def run_multiply(dut, A, B):
     """Full flow: load matrices, start, wait, read and return C as flat list.
-    Compares lower 8 bits only since uo_out is 8-bit and acc is 9-bit."""
+    Compares lower 8 bits only since uo_out is 8-bit and acc is 9-bit.
+    Also verifies debug pins after result stream completes."""
+    C = matmul_2x2(A, B)
+
     # Load 4 bytes: A (2 bytes), then B (2 bytes)
     # Perfect 4-bit packing: byte = {e1, e0}
     await load_byte(dut, pack2_4bit(A[0][0], A[0][1]))
@@ -94,7 +97,30 @@ async def run_multiply(dut, A, B):
     # Start computation
     await start_compute(dut)
 
-    return await read_results(dut)
+    results = await read_results(dut)
+
+    # Verify debug pins after result stream
+    # uio_out: [7]=any_negative, [6]=overflow_8bit, [5]=done, [4]=out_busy,
+    #          [3]=out_valid, [2]=busy_core, [1:0]=0 (input pins)
+    uio = int(dut.uio_out.value)
+    any_negative = (uio >> 7) & 1
+    overflow_8bit = (uio >> 6) & 1
+    out_busy = (uio >> 4) & 1
+    out_valid = (uio >> 3) & 1
+    busy_core = (uio >> 2) & 1
+
+    exp_any_neg = any(c < 0 for row in C for c in row)
+    exp_overflow = any(c > 127 or c < -128 for row in C for c in row)
+
+    assert busy_core == 0, f"busy_core should be 0 after done, got {busy_core}"
+    assert out_valid == 0, f"out_valid should be 0 after stream, got {out_valid}"
+    assert out_busy == 0, f"out_busy should be 0 after stream, got {out_busy}"
+    assert any_negative == exp_any_neg, \
+        f"any_negative={any_negative}, expected={exp_any_neg}"
+    assert overflow_8bit == exp_overflow, \
+        f"overflow_8bit={overflow_8bit}, expected={exp_overflow}"
+
+    return results
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -151,19 +177,19 @@ async def test_all_ones(dut):
 
 
 @cocotb.test()
-async def test_near_max_inputs(dut):
-    """All 11s × all 11s = [[242,242],[242,242]] (fits in 8 bits)"""
+async def test_max_positive(dut):
+    """All +7s × all +7s = [[98,98],[98,98]] (fits in 8-bit signed)"""
     clock = Clock(dut.clk, 10, unit="ns")
     cocotb.start_soon(clock.start())
     await reset_dut(dut)
 
-    A = [[11,11] for _ in range(2)]
-    B = [[11,11] for _ in range(2)]
+    A = [[7,7] for _ in range(2)]
+    B = [[7,7] for _ in range(2)]
     C = matmul_2x2(A, B)
     expected = [C[i][j] & 0xFF for i in range(2) for j in range(2)]
 
     results = await run_multiply(dut, A, B)
-    dut._log.info(f"near-max: got {results}, expected {expected}")
+    dut._log.info(f"max-pos: got {results}, expected {expected}")
     assert results == expected
 
 
@@ -175,7 +201,7 @@ async def test_asymmetric(dut):
     await reset_dut(dut)
 
     A = [[5,3], [2,7]]
-    B = [[4,6], [1,8]]
+    B = [[4,6], [1,7]]
     C = matmul_2x2(A, B)
     expected = [C[i][j] & 0xFF for i in range(2) for j in range(2)]
 
@@ -218,6 +244,23 @@ async def test_diagonal_scaling(dut):
 
 
 @cocotb.test()
+async def test_overflow(dut):
+    """Overflow: (-8)×(-8) + (-8)×(-8) = 128 > +127, overflow_8bit should be 1"""
+    clock = Clock(dut.clk, 10, unit="ns")
+    cocotb.start_soon(clock.start())
+    await reset_dut(dut)
+
+    A = [[-8, -8], [0, 0]]
+    B = [[-8, 0], [-8, 0]]
+    C = matmul_2x2(A, B)
+    expected = [C[i][j] & 0xFF for i in range(2) for j in range(2)]
+
+    results = await run_multiply(dut, A, B)
+    dut._log.info(f"overflow: got {results}, expected {expected}")
+    assert results == expected
+
+
+@cocotb.test()
 async def test_consecutive_runs(dut):
     """Verify correct results across 3 back-to-back runs."""
     clock = Clock(dut.clk, 10, unit="ns")
@@ -229,8 +272,8 @@ async def test_consecutive_runs(dut):
          [[5,7], [3,2]]),
         ([[4,2], [1,6]],
          [[3,5], [2,4]]),
-        ([[8,0], [0,8]],
-         [[2,3], [1,4]]),
+        ([[3,4], [5,6]],
+         [[2,1], [3,4]]),
     ]
 
     for A, B in cases:

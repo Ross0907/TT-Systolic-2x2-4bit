@@ -2,8 +2,8 @@
 // FILE        : systolic_2x2.v
 // DESCRIPTION : 2×2 Systolic Array Matrix Multiplier
 //
-//   Computes C = A × B where A and B are 2×2 matrices with 4-bit elements.
-//   Results are 9-bit accumulators (max 2 × 15×15 = 450).
+//   Computes C = A × B where A and B are 2×2 matrices with signed 4-bit elements.
+//   Results are 9-bit signed accumulators (max 2 × 7×7 = 98).
 //
 //   Controller uses a cycle counter (0-3) with skewed feeding.
 // =============================================================================
@@ -17,16 +17,16 @@ module systolic_2x2 (
     input  wire       start,
 
     // Matrix A elements (4-bit each, row-major)
-    input  wire [3:0] a00, a01,
-    input  wire [3:0] a10, a11,
+    input  wire signed [3:0] a00, a01,
+    input  wire signed [3:0] a10, a11,
 
-    // Matrix B elements (4-bit each, row-major)
-    input  wire [3:0] b00, b01,
-    input  wire [3:0] b10, b11,
+    // Matrix B elements (signed 4-bit each, row-major)
+    input  wire signed [3:0] b00, b01,
+    input  wire signed [3:0] b10, b11,
 
-    // Live accumulator outputs (9-bit each)
-    output wire [8:0] acc00, acc01,
-    output wire [8:0] acc10, acc11,
+    // Live accumulator outputs (signed 9-bit each)
+    output wire signed [8:0] acc00, acc01,
+    output wire signed [8:0] acc10, acc11,
 
     // Status
     output reg        done,
@@ -73,24 +73,24 @@ module systolic_2x2 (
     // -------------------------------------------------------------------------
     // Skewed feed generation (combinatorial)
     // -------------------------------------------------------------------------
-    wire [3:0] feed_a0 = (t < 2)           ? (t==0 ? a00 : a01) : 4'd0;
-    wire [3:0] feed_a1 = (t >= 1 && t < 3) ? (t==1 ? a10 : a11) : 4'd0;
+    wire signed [3:0] feed_a0 = (t < 2)           ? (t==0 ? a00 : a01) : 4'sd0;
+    wire signed [3:0] feed_a1 = (t >= 1 && t < 3) ? (t==1 ? a10 : a11) : 4'sd0;
 
-    wire [3:0] feed_b0 = (t < 2)           ? (t==0 ? b00 : b10) : 4'd0;
-    wire [3:0] feed_b1 = (t >= 1 && t < 3) ? (t==1 ? b01 : b11) : 4'd0;
+    wire signed [3:0] feed_b0 = (t < 2)           ? (t==0 ? b00 : b10) : 4'sd0;
+    wire signed [3:0] feed_b1 = (t >= 1 && t < 3) ? (t==1 ? b01 : b11) : 4'sd0;
 
     // -------------------------------------------------------------------------
     // PE grid interconnection wires
     // -------------------------------------------------------------------------
-    wire [3:0] a_h00, a_h10;
-    wire [3:0] b_v00, b_v01;
+    wire signed [3:0] a_h00, a_h10;
+    wire signed [3:0] b_v00, b_v01;
 
     // Dummy wires for unused edge outputs (prevents PINCONNECTEMPTY warnings)
     // Each PE must have its OWN dummy wire to avoid multiple-driver errors
-    wire [3:0] a_unused_01;
-    wire [3:0] a_unused_11;
-    wire [3:0] b_unused_10;
-    wire [3:0] b_unused_11;
+    wire signed [3:0] a_unused_01;
+    wire signed [3:0] a_unused_11;
+    wire signed [3:0] b_unused_10;
+    wire signed [3:0] b_unused_11;
 
     // -------------------------------------------------------------------------
     // Row 0

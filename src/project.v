@@ -6,7 +6,7 @@
 `default_nettype none
 
 // =============================================================================
-// Tiny Tapeout Top — 2×2 Systolic Array with 4-bit elements
+// Tiny Tapeout Top — 2×2 Systolic Array with signed 4-bit elements
 // =============================================================================
 
 module tt_um_ross_systolic (
@@ -79,8 +79,8 @@ module tt_um_ross_systolic (
     // Core
     // =========================================================================
 
-    wire [8:0] acc00, acc01;
-    wire [8:0] acc10, acc11;
+    wire signed [8:0] acc00, acc01;
+    wire signed [8:0] acc10, acc11;
 
     wire done_pulse;
     wire busy_core;
@@ -106,9 +106,9 @@ module tt_um_ross_systolic (
 
     // =========================================================================
     // Output serializer (4 results, lower 8 bits of 9-bit accumulators)
-    // Note: max theoretical result = 450 (0x1C2), so bit 8 is set only for
-    //       extreme inputs. Output is lower 8 bits; MSB can be read via
-    //       uio_out if needed in a future revision.
+    // Note: max theoretical result = 98 (0x62) for all +7 inputs.
+    //       Output is lower 8 bits (two's complement for negative results).
+    //       MSB (bit 8) is available via debug if needed.
     // =========================================================================
 
     reg [3:0] out_idx;
@@ -152,14 +152,26 @@ module tt_um_ross_systolic (
     assign uo_out = result_data;
 
     // Debug/status outputs on uio_out[7:2] (configured as outputs via uio_oe)
-    //   [2] = busy_core  – systolic array is computing
-    //   [3] = out_valid  – result data on uo_out is valid
-    //   [4] = out_busy   – output serializer is active
-    //   [7:5] = reserved
-    assign uio_out = {3'b000, out_busy, out_valid, busy_core, 2'b00};
+    //   [2] = busy_core      – systolic array is computing
+    //   [3] = out_valid        – result data on uo_out is valid
+    //   [4] = out_busy         – output serializer is active
+    //   [5] = done_pulse       – one-cycle pulse when computation completes
+    //   [6] = overflow_8bit    – 9-bit accumulator doesn't fit in 8-bit signed
+    //   [7] = any_negative     – high if ANY accumulator result is negative
+    // Overflow = acc[8] ^ acc[7] (true when value > +127 or value < -128)
+    wire ov00 = acc00[8] ^ acc00[7];
+    wire ov01 = acc01[8] ^ acc01[7];
+    wire ov10 = acc10[8] ^ acc10[7];
+    wire ov11 = acc11[8] ^ acc11[7];
+    wire overflow_8bit = ov00 | ov01 | ov10 | ov11;
+
+    wire any_negative = acc00[8] | acc01[8] | acc10[8] | acc11[8];
+
+    assign uio_out = {any_negative, overflow_8bit, done_pulse,
+                      out_busy, out_valid, busy_core, 2'b00};
     assign uio_oe  = 8'hFC;  // bits 7:2 = output, bits 1:0 = input
 
-    wire _unused = &{uio_in[7:2], acc00[8], acc01[8], acc10[8], acc11[8], 1'b0};
+    wire _unused = &{uio_in[7:2], 1'b0};
 
 endmodule
 
