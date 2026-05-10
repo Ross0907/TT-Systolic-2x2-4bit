@@ -422,3 +422,98 @@ async def test_consecutive_runs(dut):
         results = await run_multiply(dut, A, B)
         dut._log.info(f"consecutive: got {results}, expected {expected}")
         assert results == expected, f"Mismatch: {results} vs {expected}"
+
+
+@cocotb.test()
+async def test_random_fuzz(dut):
+    """50 random matrix pairs to verify no silent failures."""
+    import random
+    clock = Clock(dut.clk, 10, unit="ns")
+    cocotb.start_soon(clock.start())
+
+    for trial in range(50):
+        await reset_dut(dut)
+        A = [[random.randint(-8, 7) for _ in range(2)] for _ in range(2)]
+        B = [[random.randint(-8, 7) for _ in range(2)] for _ in range(2)]
+        C = matmul_2x2(A, B)
+        expected = [C[i][j] & 0xFF for i in range(2) for j in range(2)]
+        results = await run_multiply(dut, A, B)
+        assert results == expected, \
+            f"Trial {trial}: A={A} B={B} got {results} expected {expected}"
+
+
+@cocotb.test()
+async def test_reset_during_compute(dut):
+    """Reset during compute should abort cleanly, leaving all outputs zero."""
+    clock = Clock(dut.clk, 10, unit="ns")
+    cocotb.start_soon(clock.start())
+    await reset_dut(dut)
+
+    await load_byte(dut, pack2_4bit(3, 2))
+    await load_byte(dut, pack2_4bit(5, 7))
+    await load_byte(dut, pack2_4bit(1, 0))
+    await load_byte(dut, pack2_4bit(0, 1))
+    await start_compute(dut)
+
+    # Wait a couple of cycles (mid-compute), then reset
+    await ClockCycles(dut.clk, 2)
+    await reset_dut(dut)
+
+    uio = int(dut.uio_out.value)
+    uo = int(dut.uo_out.value)
+    assert uio == 0, f"uio_out=0x{uio:02X} after reset, expected 0x00"
+    assert uo == 0, f"uo_out=0x{uo:02X} after reset, expected 0x00"
+
+
+@cocotb.test()
+async def test_start_while_busy(dut):
+    """Start pulse while already busy should be ignored (no restart)."""
+    clock = Clock(dut.clk, 10, unit="ns")
+    cocotb.start_soon(clock.start())
+    await reset_dut(dut)
+
+    await load_byte(dut, pack2_4bit(3, 2))
+    await load_byte(dut, pack2_4bit(5, 7))
+    await load_byte(dut, pack2_4bit(1, 0))
+    await load_byte(dut, pack2_4bit(0, 1))
+    await start_compute(dut)
+
+    # One cycle later, assert start again
+    await RisingEdge(dut.clk)
+    dut.uio_in.value = 0x02  # start=1 again
+    await RisingEdge(dut.clk)
+    dut.uio_in.value = 0x00
+
+    # busy_core should still be high, not restarted
+    uio = int(dut.uio_out.value)
+    assert ((uio >> 2) & 1) == 1, "busy_core should still be high after start-while-busy"
+
+    # Poll for out_valid and read 4 results (same pattern as run_multiply)
+    await ClockCycles(dut.clk, 2)
+    while ((int(dut.uio_out.value) >> 3) & 1) == 0:
+        await RisingEdge(dut.clk)
+
+    A = [[3, 2], [5, 7]]
+    B = [[1, 0], [0, 1]]
+    C = matmul_2x2(A, B)
+    flat_C = [C[i][j] for i in range(2) for j in range(2)]
+    expected = [c & 0xFF for c in flat_C]
+
+    results = []
+    for k in range(4):
+        uio = int(dut.uio_out.value)
+        results.append(int(dut.uo_out.value) & 0xFF)
+        exp_overflow = (flat_C[k] > 127) or (flat_C[k] < -128)
+        exp_sign = 1 if flat_C[k] < 0 else 0
+        got_overflow = (uio >> 4) & 1
+        got_sign = (uio >> 7) & 1
+        assert got_overflow == exp_overflow, \
+            f"Result {k}: overflow={got_overflow}, expected={exp_overflow}"
+        assert got_sign == exp_sign, \
+            f"Result {k}: sign={got_sign}, expected={exp_sign}"
+        if k < 3:
+            await RisingEdge(dut.clk)
+
+    # Let serializer finish
+    await RisingEdge(dut.clk)
+    assert results == expected, f"start-while-busy corrupted results: {results}"

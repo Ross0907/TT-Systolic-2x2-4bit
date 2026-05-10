@@ -1,9 +1,9 @@
 # Tiny Tapeout project information
 project:
   title:        "2x2 Systolic Array Matrix Multiplier"
-  author:       "Ross"
+  author:       "Roshan Tripathy, Dr. Amit Bakshi, Ashmit Avash"
   discord:      ""
-  description:  "2x2 systolic array computing 2x2 signed matrix multiply with 4-bit signed elements"
+  description:  "2x2 signed 4-bit systolic array matrix multiplier with 9-bit accumulators, overflow detection, sign reconstruction, and manual step mode"
   language:     "Verilog"
   clock_hz:     0
 

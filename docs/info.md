@@ -200,6 +200,8 @@ If `overflow_8bit=1`, the 8-bit `uo_out` alone is **wrong** — you must use the
 
 ### iverilog (command line)
 
+Runs 18 self-checking test cases:
+
 ```bash
 cd TT_Systolic_
 iverilog -g2012 -Wall -o sim.out \
@@ -218,6 +220,8 @@ vvp sim.out
 3. Run Behavioral Simulation, then in Tcl console: `run 5000ns`
 
 ### cocotb
+
+Runs 16 Python test cases:
 
 ```bash
 cd TT_Systolic_/test

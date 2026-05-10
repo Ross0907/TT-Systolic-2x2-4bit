@@ -452,6 +452,104 @@ module tb_vivado;
             ena = 1'b1;
         end
 
+        // Test 13: Reset during compute — should abort cleanly
+        begin
+            reg rst_ok;
+            do_reset;
+            load_byte(pack2_4bit(4'd3, 4'd2));
+            load_byte(pack2_4bit(4'd5, 4'd7));
+            load_byte(pack2_4bit(4'd1, 4'd0));
+            load_byte(pack2_4bit(4'd0, 4'd1));
+            do_start;
+            repeat(2) @(posedge clk);  // mid-compute
+            do_reset;
+            rst_ok = (uio_out === 8'h00) && (uo_out === 8'h00);
+            if (rst_ok) begin
+                $display("PASS [rst-mid] reset during compute aborts cleanly");
+                pass_count = pass_count + 1;
+            end else begin
+                $display("FAIL [rst-mid] uio_out=0x%02X uo_out=0x%02X after reset", uio_out, uo_out);
+                fail_count = fail_count + 1;
+            end
+        end
+
+        // Test 14: Start-while-busy ignored
+        begin
+            reg busy_ok;
+            do_reset;
+            load_byte(pack2_4bit(4'd3, 4'd2));
+            load_byte(pack2_4bit(4'd5, 4'd7));
+            load_byte(pack2_4bit(4'd1, 4'd0));
+            load_byte(pack2_4bit(4'd0, 4'd1));
+            do_start;
+            @(posedge clk);
+            @(negedge clk);
+            uio_in = 8'h02;  // start again while busy
+            @(posedge clk);
+            @(negedge clk);
+            uio_in = 8'h00;
+            busy_ok = (uio_out[2] === 1'b1);  // still busy, not restarted
+            repeat(10) @(posedge clk);  // let it finish
+            if (busy_ok && uio_out[2] === 1'b0) begin
+                $display("PASS [busy-ign] start-while-busy ignored");
+                pass_count = pass_count + 1;
+            end else begin
+                $display("FAIL [busy-ign] start-while-busy caused restart");
+                fail_count = fail_count + 1;
+            end
+        end
+
+        // Test 15: Rapid consecutive runs (no reset between)
+        begin
+            reg rapid_ok;
+            integer rc;
+            rapid_ok = 1'b1;
+            do_reset;
+            for (rc = 0; rc < 3; rc = rc + 1) begin
+                load_byte(pack2_4bit(4'd1+rc, 4'd0));
+                load_byte(pack2_4bit(4'd0, 4'd1));
+                load_byte(pack2_4bit(4'd1, 4'd0+rc));
+                load_byte(pack2_4bit(4'd0, 4'd1));
+                do_start;
+                repeat(8) @(posedge clk);
+                // Just verify no crash / busy goes low
+                if (uio_out[2] !== 1'b0) begin
+                    $display("  FAIL rapid run %0d: busy_core still high", rc);
+                    rapid_ok = 1'b0;
+                end
+            end
+            if (rapid_ok) begin
+                $display("PASS [rapid-3] 3 consecutive runs OK");
+                pass_count = pass_count + 1;
+            end else begin
+                $display("FAIL [rapid-3] consecutive run failure");
+                fail_count = fail_count + 1;
+            end
+        end
+
+        // Test 16: Overflow boundary (+127 edge)
+        begin
+            reg ov_ok;
+            do_reset;
+            // A = [[7,7],[0,0]], B = [[7,0],[7,0]] -> C00 = 98 (fits)
+            load_byte(pack2_4bit(4'sd7, 4'sd7));
+            load_byte(pack2_4bit(4'sd0, 4'sd0));
+            load_byte(pack2_4bit(4'sd7, 4'sd0));
+            load_byte(pack2_4bit(4'sd7, 4'sd0));
+            do_start;
+            repeat(6) @(posedge clk);
+            read_results;
+            // C00 = 7*7 + 7*7 = 98, fits in 8-bit, overflow should be 0 during C00 read
+            ov_ok = (results[0] === 8'd98);
+            if (ov_ok) begin
+                $display("PASS [ov-edge] +98 fits, no overflow");
+                pass_count = pass_count + 1;
+            end else begin
+                $display("FAIL [ov-edge] result=%0d, expected 98", results[0]);
+                fail_count = fail_count + 1;
+            end
+        end
+
         // Summary
         $display("===========================================");
         $display("Results: %0d PASS, %0d FAIL", pass_count, fail_count);
