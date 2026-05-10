@@ -27,6 +27,21 @@ module tt_um_ross_systolic (
     wire wren  = uio_in[0];
     wire start = uio_in[1];
 
+    wire manual_clk = uio_in[5];
+    wire step_mode  = uio_in[6];
+
+    // Manual step logic: rising-edge detect on manual_clk when step_mode=1
+    reg manual_clk_prev;
+    always @(posedge clk) begin
+        if (rst)
+            manual_clk_prev <= 1'b0;
+        else
+            manual_clk_prev <= manual_clk;
+    end
+
+    wire step_pulse = step_mode & manual_clk & ~manual_clk_prev;
+    wire step_en    = step_mode ? step_pulse : 1'b1;
+
     wire start_gated;
 
     // =========================================================================
@@ -45,11 +60,13 @@ module tt_um_ross_systolic (
             for (i = 0; i < 4; i = i + 1)
                 mat_reg[i] <= 8'd0;
 
-        end else if (wren) begin
-            mat_reg[byte_addr] <= ui_in;
-            byte_addr <= byte_addr + 2'd1;
-        end else if (start) begin
-            byte_addr <= 2'd0;
+        end else if (step_en) begin
+            if (wren) begin
+                mat_reg[byte_addr] <= ui_in;
+                byte_addr <= byte_addr + 2'd1;
+            end else if (start) begin
+                byte_addr <= 2'd0;
+            end
         end
     end
 
@@ -88,7 +105,7 @@ module tt_um_ross_systolic (
     systolic_2x2 core (
         .clk    (clk),
         .rst    (rst),
-        .clk_en (1'b1),
+        .clk_en (step_en),
         .start  (start_gated),
 
         .a00(a00), .a01(a01),
@@ -120,7 +137,7 @@ module tt_um_ross_systolic (
             out_valid <= 1'b0;
             out_busy  <= 1'b0;
             out_idx   <= 4'd0;
-        end else begin
+        end else if (step_en) begin
             if (done_pulse) begin
                 out_valid <= 1'b1;
                 out_busy  <= 1'b1;
@@ -151,27 +168,31 @@ module tt_um_ross_systolic (
 
     assign uo_out = result_data;
 
-    // Debug/status outputs on uio_out[7:2] (configured as outputs via uio_oe)
+    // Debug/status outputs on uio_out[7,4:2] (bits 6,5 are manual-step INPUTS)
     //   [2] = busy_core      – systolic array is computing
     //   [3] = out_valid        – result data on uo_out is valid
-    //   [4] = out_busy         – output serializer is active
-    //   [5] = done_pulse       – one-cycle pulse when computation completes
-    //   [6] = overflow_8bit    – 9-bit accumulator doesn't fit in 8-bit signed
-    //   [7] = any_negative     – high if ANY accumulator result is negative
-    // Overflow = acc[8] ^ acc[7] (true when value > +127 or value < -128)
-    wire ov00 = acc00[8] ^ acc00[7];
-    wire ov01 = acc01[8] ^ acc01[7];
-    wire ov10 = acc10[8] ^ acc10[7];
-    wire ov11 = acc11[8] ^ acc11[7];
-    wire overflow_8bit = ov00 | ov01 | ov10 | ov11;
+    //   [4] = overflow_8bit    – acc[8] ^ acc[7] for CURRENT result (1 = truncated)
+    //   [7] = acc_sign         – acc[8] (sign bit) for CURRENT result
+    // Bits [6:5] are INPUTS for manual step mode:
+    //   [5] = manual_clk       – rising edge advances one step when step_mode=1
+    //   [6] = step_mode        – 1 = manual step, 0 = free-running
+    // Together {acc_sign, uo_out[7:0]} gives the full 9-bit signed value.
+    wire acc_sign = out_valid ?
+        ((out_idx == 4'd0) ? acc00[8] :
+         (out_idx == 4'd1) ? acc01[8] :
+         (out_idx == 4'd2) ? acc10[8] :
+         (out_idx == 4'd3) ? acc11[8] : 1'b0) : 1'b0;
 
-    wire any_negative = acc00[8] | acc01[8] | acc10[8] | acc11[8];
+    wire overflow_8bit = out_valid ?
+        ((out_idx == 4'd0) ? (acc00[8] ^ acc00[7]) :
+         (out_idx == 4'd1) ? (acc01[8] ^ acc01[7]) :
+         (out_idx == 4'd2) ? (acc10[8] ^ acc10[7]) :
+         (out_idx == 4'd3) ? (acc11[8] ^ acc11[7]) : 1'b0) : 1'b0;
 
-    assign uio_out = {any_negative, overflow_8bit, done_pulse,
-                      out_busy, out_valid, busy_core, 2'b00};
-    assign uio_oe  = 8'hFC;  // bits 7:2 = output, bits 1:0 = input
+    assign uio_out = {acc_sign, 2'b00, overflow_8bit, out_valid, busy_core, 2'b00};
+    assign uio_oe  = 8'h9C;  // bits 7,4,3,2 = output; bits 6,5,1,0 = input
 
-    wire _unused = &{uio_in[7:2], 1'b0};
+    wire _unused = &{uio_in[7], uio_in[4:2], 1'b0};
 
 endmodule
 

@@ -168,37 +168,46 @@ module tb_vivado;
             // Start computation
             do_start;
 
-            // Wait for systolic array to finish (~6 cycles) then read 4 outputs
-            repeat(6) @(posedge clk);
-            read_results;
+            // Wait for out_valid, then read 4 results with per-cycle overflow/sign check
+            repeat(2) @(posedge clk);
+            while (uio_out[3] == 1'b0) @(posedge clk);
+
+            begin : read_with_debug
+                integer k;
+                reg exp_ov;
+                reg exp_sign;
+                for (k = 0; k < 4; k = k + 1) begin
+                    results[k] = uo_out;
+                    // Check per-result overflow_8bit and acc_sign
+                    case (k)
+                        0: begin exp_ov = overflow_8bit(ec00); exp_sign = ec00[8]; end
+                        1: begin exp_ov = overflow_8bit(ec01); exp_sign = ec01[8]; end
+                        2: begin exp_ov = overflow_8bit(ec10); exp_sign = ec10[8]; end
+                        3: begin exp_ov = overflow_8bit(ec11); exp_sign = ec11[8]; end
+                    endcase
+                    if (uio_out[4] !== exp_ov) begin
+                        $display("  OVERFLOW MISMATCH C%0d%0d: got %b, exp %b", k/2,k%2, uio_out[4], exp_ov);
+                        ok = 1'b0;
+                    end
+                    if (uio_out[7] !== exp_sign) begin
+                        $display("  SIGN MISMATCH C%0d%0d: got %b, exp %b", k/2,k%2, uio_out[7], exp_sign);
+                        ok = 1'b0;
+                    end
+                    if (k < 3) @(posedge clk);
+                end
+            end
 
             // Compare lower 8 bits (uo_out is 8-bit, accumulator is 9-bit)
-            ok = (results[0] === ec00[7:0] && results[1] === ec01[7:0] &&
-                  results[2] === ec10[7:0] && results[3] === ec11[7:0]);
+            ok = ok && (results[0] === ec00[7:0] && results[1] === ec01[7:0] &&
+                        results[2] === ec10[7:0] && results[3] === ec11[7:0]);
 
-            // Check debug pins after result stream completes
-            // any_negative = uio_out[7], overflow_8bit = uio_out[6]
-            begin
-                reg exp_any_neg;
-                reg exp_overflow;
-                reg dbg_ok;
-                exp_any_neg = (ec00 < 0) || (ec01 < 0) || (ec10 < 0) || (ec11 < 0);
-                exp_overflow = overflow_8bit(ec00) || overflow_8bit(ec01) ||
-                                overflow_8bit(ec10) || overflow_8bit(ec11);
-                // uio_out: [7]=any_neg, [6]=overflow, [5]=done, [4]=busy, [3]=valid, [2]=core_busy
-                // After read_results, out_valid should be 0, out_busy should be 0
-                // done_pulse is only 1 cycle, so it's 0 now
-                // busy_core should be 0
-                dbg_ok = (uio_out[7] === exp_any_neg) &&
-                         (uio_out[6] === exp_overflow) &&
-                         (uio_out[4] === 1'b0) &&   // out_busy = 0 after streaming
-                         (uio_out[3] === 1'b0) &&   // out_valid = 0 after streaming
-                         (uio_out[2] === 1'b0);     // busy_core = 0 after done
-                if (!dbg_ok) begin
-                    $display("  DEBUG PIN MISMATCH any_neg=%b(exp %b) overflow=%b(exp %b) uio_out=0x%02X",
-                             uio_out[7], exp_any_neg, uio_out[6], exp_overflow, uio_out);
-                    ok = 1'b0;
-                end
+            // Let serializer finish (out_valid goes 0 on next edge after last read)
+            @(posedge clk);
+            // After stream: out_valid=0, so overflow_8bit=0 and acc_sign=0
+            // busy_core should also be 0
+            if (uio_out[4] !== 1'b0 || uio_out[7] !== 1'b0 || uio_out[2] !== 1'b0) begin
+                $display("  FINAL DEBUG MISMATCH: uio_out=0x%02X (exp overflow=0, sign=0, busy=0)", uio_out);
+                ok = 1'b0;
             end
 
             if (!ok) begin
@@ -216,6 +225,107 @@ module tb_vivado;
     endtask
 
     // ─────────────────────────────────────────────────────────────
+    // Step-mode helpers
+    // ─────────────────────────────────────────────────────────────
+    task step_pulse;
+        begin
+            @(negedge clk);
+            uio_in[5] = 1'b1;   // manual_clk high
+            @(posedge clk);       // rising edge → step fires
+            @(negedge clk);
+            uio_in[5] = 1'b0;   // manual_clk low
+            @(posedge clk);
+        end
+    endtask
+
+    task load_byte_step;
+        input [7:0] data;
+        begin
+            @(negedge clk);
+            ui_in  = data;
+            uio_in = 8'h41;       // step_mode=1, wren=1
+            step_pulse;
+            @(negedge clk);
+            uio_in = 8'h40;       // step_mode=1, wren=0
+            @(posedge clk);
+        end
+    endtask
+
+    task start_compute_step;
+        begin
+            @(negedge clk);
+            uio_in = 8'h42;       // step_mode=1, start=1
+            step_pulse;
+            @(negedge clk);
+            uio_in = 8'h40;       // step_mode=1, start=0
+            @(posedge clk);
+        end
+    endtask
+
+    task read_results_step;
+        reg [7:0] res [0:3];
+        integer k;
+        begin
+            // Step until out_valid goes high
+            while (uio_out[3] == 1'b0) step_pulse;
+            // Read 4 results, one per step
+            for (k = 0; k < 4; k = k + 1) begin
+                res[k] = uo_out;
+                if (k < 3) step_pulse;
+            end
+        end
+    endtask
+
+    // Run one test in manual step mode and verify against reference
+    task run_test_step;
+        input [3:0] a00, a01;
+        input [3:0] a10, a11;
+        input [3:0] b00, b01;
+        input [3:0] b10, b11;
+        input [63:0] label;
+        reg signed [8:0] ec00, ec01;
+        reg signed [8:0] ec10, ec11;
+        reg [7:0] got [0:3];
+        reg ok;
+        integer k;
+        begin
+            ec00 = ref_elem(a00, a01, b00, b10);
+            ec01 = ref_elem(a00, a01, b01, b11);
+            ec10 = ref_elem(a10, a11, b00, b10);
+            ec11 = ref_elem(a10, a11, b01, b11);
+
+            do_reset;
+
+            load_byte_step(pack2_4bit(a00, a01));
+            load_byte_step(pack2_4bit(a10, a11));
+            load_byte_step(pack2_4bit(b00, b01));
+            load_byte_step(pack2_4bit(b10, b11));
+
+            start_compute_step;
+
+            // Step until result valid, then read 4 results
+            while (uio_out[3] == 1'b0) step_pulse;
+            for (k = 0; k < 4; k = k + 1) begin
+                got[k] = uo_out;
+                if (k < 3) step_pulse;
+            end
+
+            ok = (got[0] === ec00[7:0] && got[1] === ec01[7:0] &&
+                  got[2] === ec10[7:0] && got[3] === ec11[7:0]);
+
+            if (!ok) begin
+                $display("FAIL [%s] (step mode)", label);
+                $display("  got      C00=%0d C01=%0d", got[0], got[1]);
+                $display("           C10=%0d C11=%0d", got[2], got[3]);
+                fail_count = fail_count + 1;
+            end else begin
+                $display("PASS [%s] (step mode)", label);
+                pass_count = pass_count + 1;
+            end
+        end
+    endtask
+
+    // ─────────────────────────────────────────────────────────────
     // Test sequence
     // ─────────────────────────────────────────────────────────────
     initial begin
@@ -224,11 +334,11 @@ module tb_vivado;
 
         // Verify debug IO configuration after reset
         do_reset;
-        if (uio_oe !== 8'hFC) begin
-            $display("FAIL [io_oe] expected 0xFC, got 0x%02X", uio_oe);
+        if (uio_oe !== 8'h9C) begin
+            $display("FAIL [io_oe] expected 0x9C, got 0x%02X", uio_oe);
             fail_count = fail_count + 1;
         end else begin
-            $display("PASS [io_oe] uio_oe = 0xFC (debug outputs enabled)");
+            $display("PASS [io_oe] uio_oe = 0x9C (bits 7,4,3,2 out; 6,5,1,0 in)");
             pass_count = pass_count + 1;
         end
         if (uio_out !== 8'h00) begin
@@ -294,6 +404,53 @@ module tb_vivado;
                  -4'sd8,  4'sd0,
                  4'sd0,   4'sd0,
                  "overflow");
+
+        // Test 9: All minimum (-8) inputs
+        run_test(-4'sd8, -4'sd8,
+                 -4'sd8, -4'sd8,
+                 -4'sd8, -4'sd8,
+                 -4'sd8, -4'sd8,
+                 "all-neg ");
+
+        // Test 10: Boundary mix (-8, 7, -8, 7) × (7, -8, 7, -8)
+        run_test(-4'sd8,  4'sd7,
+                 -4'sd8,  4'sd7,
+                  4'sd7, -4'sd8,
+                  4'sd7, -4'sd8,
+                 "bndry-mx");
+
+        // Test 11: Manual step mode — same matrix, stepped one cycle at a time
+        run_test_step(4'sd3,  4'sd2,
+                      -4'sd1, 4'sd4,
+                       4'sd5, -4'sd2,
+                       4'sd3,  4'sd1,
+                      "step-md ");
+
+        // Test 12: ena gating — start ignored when ena=0
+        begin
+            reg ena_ok;
+            do_reset;
+            ena = 1'b0;
+            load_byte(pack2_4bit(4'd1, 4'd0));
+            load_byte(pack2_4bit(4'd0, 4'd1));
+            load_byte(pack2_4bit(4'd1, 4'd0));
+            load_byte(pack2_4bit(4'd0, 4'd1));
+            @(negedge clk);
+            uio_in = 8'h02;  // start=1, but ena=0
+            @(posedge clk);
+            @(negedge clk);
+            uio_in = 8'h00;
+            repeat(4) @(posedge clk);
+            ena_ok = (uio_out[2] === 1'b0) && (uio_out[4] === 1'b0);  // busy=0
+            if (ena_ok) begin
+                $display("PASS [ena-gate] start ignored when ena=0");
+                pass_count = pass_count + 1;
+            end else begin
+                $display("FAIL [ena-gate] computation started despite ena=0");
+                fail_count = fail_count + 1;
+            end
+            ena = 1'b1;
+        end
 
         // Summary
         $display("===========================================");

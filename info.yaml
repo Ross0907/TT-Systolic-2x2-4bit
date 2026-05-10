@@ -38,15 +38,15 @@ pinout:
   uo[6]: "result_data_bit6"
   uo[7]: "result_data_bit7"
 
-  # Bidirectional: [1:0] = inputs, [7:2] = outputs (uio_oe = 8'hFC)
+  # Bidirectional: bits 7,4,3,2 = outputs; bits 6,5,1,0 = inputs (uio_oe = 8'h9C)
   uio[0]: "wren"           # Input:  write enable for loading ui_in into matrix
   uio[1]: "start"          # Input:  begin computation (gated by !busy and ena)
   uio[2]: "busy_core"      # Output: systolic array is actively computing
   uio[3]: "out_valid"      # Output: uo_out contains valid result data
-  uio[4]: "out_busy"       # Output: output serializer is active (4-cycle stream)
-  uio[5]: "done_pulse"     # Output: one-cycle pulse when computation completes
-  uio[6]: "overflow_8bit"   # Output: 1 if 9-bit accumulator exceeds 8-bit signed range
-  uio[7]: "any_negative"    # Output: high if ANY of the 4 results is negative
+  uio[4]: "overflow_8bit"  # Output: acc[8]^acc[7] for CURRENT result (1 = truncated)
+  uio[5]: "manual_clk"     # Input:  rising edge = advance one step (when step_mode=1)
+  uio[6]: "step_mode"      # Input:  1 = manual step mode, 0 = free-running
+  uio[7]: "acc_sign"       # Output: acc[8] sign bit for CURRENT result (9th bit)
 
 # Do not change!
 yaml_version: 6

@@ -47,7 +47,7 @@ module systolic_2x2 (
             cycle_cnt <= 4'd0;
             busy      <= 1'b0;
             done      <= 1'b0;
-        end else begin
+        end else if (clk_en) begin
             done <= 1'b0;
 
             if (start && !active) begin

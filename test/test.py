@@ -97,28 +97,89 @@ async def run_multiply(dut, A, B):
     # Start computation
     await start_compute(dut)
 
-    results = await read_results(dut)
+    # Poll for out_valid, then read 4 results with per-cycle overflow/sign check
+    await ClockCycles(dut.clk, 2)
+    while ((int(dut.uio_out.value) >> 3) & 1) == 0:
+        await RisingEdge(dut.clk)
 
-    # Verify debug pins after result stream
-    # uio_out: [7]=any_negative, [6]=overflow_8bit, [5]=done, [4]=out_busy,
-    #          [3]=out_valid, [2]=busy_core, [1:0]=0 (input pins)
+    flat_C = [C[i][j] for i in range(2) for j in range(2)]
+    results = []
+    for k in range(4):
+        uio = int(dut.uio_out.value)
+        results.append(int(dut.uo_out.value) & 0xFF)
+        # Check per-result overflow_8bit (uio[4]) and acc_sign (uio[7])
+        exp_overflow = (flat_C[k] > 127) or (flat_C[k] < -128)
+        exp_sign = 1 if flat_C[k] < 0 else 0
+        got_overflow = (uio >> 4) & 1
+        got_sign = (uio >> 7) & 1
+        assert got_overflow == exp_overflow, \
+            f"Result {k}: overflow_8bit={got_overflow}, expected={exp_overflow}"
+        assert got_sign == exp_sign, \
+            f"Result {k}: acc_sign={got_sign}, expected={exp_sign}"
+        if k < 3:
+            await RisingEdge(dut.clk)
+
+    # Let serializer finish (out_valid goes 0 on next edge)
+    await RisingEdge(dut.clk)
+    # After stream: out_valid=0, so overflow_8bit=0, acc_sign=0, busy_core=0
     uio = int(dut.uio_out.value)
-    any_negative = (uio >> 7) & 1
-    overflow_8bit = (uio >> 6) & 1
-    out_busy = (uio >> 4) & 1
-    out_valid = (uio >> 3) & 1
-    busy_core = (uio >> 2) & 1
+    assert ((uio >> 2) & 1) == 0, f"busy_core should be 0 after done"
+    assert ((uio >> 3) & 1) == 0, f"out_valid should be 0 after stream"
+    assert ((uio >> 4) & 1) == 0, f"overflow_8bit should be 0 after stream"
+    assert ((uio >> 7) & 1) == 0, f"acc_sign should be 0 after stream"
 
-    exp_any_neg = any(c < 0 for row in C for c in row)
-    exp_overflow = any(c > 127 or c < -128 for row in C for c in row)
+    return results
 
-    assert busy_core == 0, f"busy_core should be 0 after done, got {busy_core}"
-    assert out_valid == 0, f"out_valid should be 0 after stream, got {out_valid}"
-    assert out_busy == 0, f"out_busy should be 0 after stream, got {out_busy}"
-    assert any_negative == exp_any_neg, \
-        f"any_negative={any_negative}, expected={exp_any_neg}"
-    assert overflow_8bit == exp_overflow, \
-        f"overflow_8bit={overflow_8bit}, expected={exp_overflow}"
+
+async def step_pulse(dut, base_val):
+    """Pulse manual_clk while keeping base_val on other bits."""
+    dut.uio_in.value = base_val | 0x20   # set manual_clk=1
+    await RisingEdge(dut.clk)
+    dut.uio_in.value = base_val           # clear manual_clk
+    await RisingEdge(dut.clk)
+
+
+async def load_byte_step(dut, data):
+    """Load one byte in step mode."""
+    dut.ui_in.value = data
+    await step_pulse(dut, 0x41)           # step_mode=1, wren=1
+    dut.uio_in.value = 0x40
+    await RisingEdge(dut.clk)
+
+
+async def start_compute_step(dut):
+    """Start computation in step mode."""
+    await step_pulse(dut, 0x42)           # step_mode=1, start=1
+    dut.uio_in.value = 0x40
+    await RisingEdge(dut.clk)
+
+
+async def run_multiply_step(dut, A, B):
+    """Full flow in manual step mode."""
+    C = matmul_2x2(A, B)
+
+    await load_byte_step(dut, pack2_4bit(A[0][0], A[0][1]))
+    await load_byte_step(dut, pack2_4bit(A[1][0], A[1][1]))
+    await load_byte_step(dut, pack2_4bit(B[0][0], B[0][1]))
+    await load_byte_step(dut, pack2_4bit(B[1][0], B[1][1]))
+
+    await start_compute_step(dut)
+
+    # Step until out_valid goes high, with timeout
+    for _ in range(50):
+        uio_val = dut.uio_out.value
+        out_valid_bit = int(uio_val) >> 3 & 1 if uio_val.is_resolvable else -1
+        if out_valid_bit == 1:
+            break
+        await step_pulse(dut, 0x40)
+    else:
+        assert False, "Timeout waiting for out_valid in step mode"
+
+    results = []
+    for k in range(4):
+        results.append(int(dut.uo_out.value) & 0xFF)
+        if k < 3:
+            await step_pulse(dut, 0x40)
 
     return results
 
@@ -139,7 +200,8 @@ async def test_reset_state(dut):
     assert int(dut.uo_out.value) == 0, \
         f"Expected uo_out=0 after reset, got {int(dut.uo_out.value)}"
     assert int(dut.uio_out.value) == 0, "uio_out should be 0"
-    assert int(dut.uio_oe.value) == 0xFC, "uio_oe should be 0xFC (bits 7:2 output, 1:0 input)"
+    assert int(dut.uio_oe.value) == 0x9C, \
+        "uio_oe should be 0x9C (bits 7,4,3,2 out; 6,5,1,0 in)"
 
 
 @cocotb.test()
@@ -245,7 +307,7 @@ async def test_diagonal_scaling(dut):
 
 @cocotb.test()
 async def test_overflow(dut):
-    """Overflow: (-8)×(-8) + (-8)×(-8) = 128 > +127, overflow_8bit should be 1"""
+    """Overflow: (-8)×(-8) + (-8)×(-8) = 128 wraps to 0x80 in 8-bit output"""
     clock = Clock(dut.clk, 10, unit="ns")
     cocotb.start_soon(clock.start())
     await reset_dut(dut)
@@ -261,6 +323,84 @@ async def test_overflow(dut):
 
 
 @cocotb.test()
+async def test_all_negative(dut):
+    """All -8 inputs — maximum negative values."""
+    clock = Clock(dut.clk, 10, unit="ns")
+    cocotb.start_soon(clock.start())
+    await reset_dut(dut)
+
+    A = [[-8, -8], [-8, -8]]
+    B = [[-8, -8], [-8, -8]]
+    C = matmul_2x2(A, B)
+    expected = [C[i][j] & 0xFF for i in range(2) for j in range(2)]
+
+    results = await run_multiply(dut, A, B)
+    dut._log.info(f"all-neg: got {results}, expected {expected}")
+    assert results == expected
+
+
+@cocotb.test()
+async def test_boundary_mix(dut):
+    """Boundary mix of max positive and max negative."""
+    clock = Clock(dut.clk, 10, unit="ns")
+    cocotb.start_soon(clock.start())
+    await reset_dut(dut)
+
+    A = [[-8, 7], [-8, 7]]
+    B = [[7, -8], [7, -8]]
+    C = matmul_2x2(A, B)
+    expected = [C[i][j] & 0xFF for i in range(2) for j in range(2)]
+
+    results = await run_multiply(dut, A, B)
+    dut._log.info(f"boundary: got {results}, expected {expected}")
+    assert results == expected
+
+
+@cocotb.test()
+async def test_step_mode(dut):
+    """Manual step mode produces same results as free-running."""
+    clock = Clock(dut.clk, 10, unit="ns")
+    cocotb.start_soon(clock.start())
+    await reset_dut(dut)
+
+    A = [[3, 2], [-1, 4]]
+    B = [[5, -2], [3, 1]]
+    C = matmul_2x2(A, B)
+    expected = [C[i][j] & 0xFF for i in range(2) for j in range(2)]
+
+    results = await run_multiply_step(dut, A, B)
+    dut._log.info(f"step mode: got {results}, expected {expected}")
+    assert results == expected, f"step mode mismatch: got {results}, expected {expected}"
+
+
+@cocotb.test()
+async def test_ena_gating(dut):
+    """Start is ignored when ena=0."""
+    clock = Clock(dut.clk, 10, unit="ns")
+    cocotb.start_soon(clock.start())
+    await reset_dut(dut)
+
+    # Load identity matrices
+    await load_byte(dut, pack2_4bit(1, 0))
+    await load_byte(dut, pack2_4bit(0, 1))
+    await load_byte(dut, pack2_4bit(1, 0))
+    await load_byte(dut, pack2_4bit(0, 1))
+
+    # Assert start with ena=0
+    dut.ena.value = 0
+    dut.uio_in.value = 0x02
+    await RisingEdge(dut.clk)
+    dut.uio_in.value = 0x00
+    await ClockCycles(dut.clk, 4)
+
+    # busy_core (uio_out[2]) and out_busy (uio_out[4]) should still be 0
+    uio = int(dut.uio_out.value)
+    assert ((uio >> 2) & 1) == 0, "busy_core should be 0 when ena=0"
+    assert ((uio >> 4) & 1) == 0, "out_busy should be 0 when ena=0"
+    dut.ena.value = 1
+
+
+@cocotb.test()
 async def test_consecutive_runs(dut):
     """Verify correct results across 3 back-to-back runs."""
     clock = Clock(dut.clk, 10, unit="ns")
@@ -272,13 +412,13 @@ async def test_consecutive_runs(dut):
          [[5,7], [3,2]]),
         ([[4,2], [1,6]],
          [[3,5], [2,4]]),
-        ([[3,4], [5,6]],
-         [[2,1], [3,4]]),
+        ([[2,3], [5,1]],
+         [[6,2], [3,7]]),
     ]
 
     for A, B in cases:
-        results = await run_multiply(dut, A, B)
         C = matmul_2x2(A, B)
         expected = [C[i][j] & 0xFF for i in range(2) for j in range(2)]
+        results = await run_multiply(dut, A, B)
         dut._log.info(f"consecutive: got {results}, expected {expected}")
         assert results == expected, f"Mismatch: {results} vs {expected}"
