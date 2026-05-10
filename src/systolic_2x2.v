@@ -9,7 +9,6 @@
 // =============================================================================
 
 `default_nettype none
-`timescale 1ns / 1ps
 
 module systolic_2x2 (
     input  wire       clk,
@@ -87,20 +86,23 @@ module systolic_2x2 (
     wire [3:0] b_v00, b_v01;
 
     // Dummy wires for unused edge outputs (prevents PINCONNECTEMPTY warnings)
-    wire [3:0] a_unused;
-    wire [3:0] b_unused;
+    // Each PE must have its OWN dummy wire to avoid multiple-driver errors
+    wire [3:0] a_unused_01;
+    wire [3:0] a_unused_11;
+    wire [3:0] b_unused_10;
+    wire [3:0] b_unused_11;
 
     // -------------------------------------------------------------------------
     // Row 0
     // -------------------------------------------------------------------------
     systolic_pe pe00 (.clk(clk), .rst(rst), .clk_en(run_en), .clear(clear_pe), .a_in(feed_a0), .b_in(feed_b0), .a_out(a_h00), .b_out(b_v00), .acc(acc00));
-    systolic_pe pe01 (.clk(clk), .rst(rst), .clk_en(run_en), .clear(clear_pe), .a_in(a_h00),   .b_in(feed_b1), .a_out(a_unused), .b_out(b_v01), .acc(acc01));
+    systolic_pe pe01 (.clk(clk), .rst(rst), .clk_en(run_en), .clear(clear_pe), .a_in(a_h00),   .b_in(feed_b1), .a_out(a_unused_01), .b_out(b_v01), .acc(acc01));
 
     // -------------------------------------------------------------------------
     // Row 1
     // -------------------------------------------------------------------------
-    systolic_pe pe10 (.clk(clk), .rst(rst), .clk_en(run_en), .clear(clear_pe), .a_in(feed_a1), .b_in(b_v00), .a_out(a_h10), .b_out(b_unused), .acc(acc10));
-    systolic_pe pe11 (.clk(clk), .rst(rst), .clk_en(run_en), .clear(clear_pe), .a_in(a_h10),   .b_in(b_v01), .a_out(a_unused), .b_out(b_unused), .acc(acc11));
+    systolic_pe pe10 (.clk(clk), .rst(rst), .clk_en(run_en), .clear(clear_pe), .a_in(feed_a1), .b_in(b_v00), .a_out(a_h10), .b_out(b_unused_10), .acc(acc10));
+    systolic_pe pe11 (.clk(clk), .rst(rst), .clk_en(run_en), .clear(clear_pe), .a_in(a_h10),   .b_in(b_v01), .a_out(a_unused_11), .b_out(b_unused_11), .acc(acc11));
 
 endmodule
 

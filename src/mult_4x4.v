@@ -4,7 +4,6 @@
 // =============================================================================
 
 `default_nettype none
-`timescale 1ns / 1ps
 
 module mult_4x4 (
     input  wire [3:0] a,

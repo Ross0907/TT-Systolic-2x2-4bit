@@ -1,11 +1,9 @@
-/* verilator lint_off TIMESCALEMOD */
 /*
  * Copyright (c) 2026 Roshan Tripathy
  * SPDX-License-Identifier: Apache-2.0
  */
 
 `default_nettype none
-`timescale 1ns / 1ps
 
 // =============================================================================
 // Tiny Tapeout Top — 2×2 Systolic Array with 4-bit elements
@@ -36,22 +34,22 @@ module tt_um_ross_systolic (
     // =========================================================================
 
     reg [7:0] mat_reg [0:3];
-    reg [3:0] byte_addr;
+    reg [1:0] byte_addr;
 
     integer i;
 
     always @(posedge clk) begin
         if (rst) begin
-            byte_addr <= 4'd0;
+            byte_addr <= 2'd0;
 
             for (i = 0; i < 4; i = i + 1)
                 mat_reg[i] <= 8'd0;
 
         end else if (wren) begin
             mat_reg[byte_addr] <= ui_in;
-            byte_addr <= byte_addr + 4'd1;
+            byte_addr <= byte_addr + 2'd1;
         end else if (start) begin
-            byte_addr <= 4'd0;
+            byte_addr <= 2'd0;
         end
     end
 
@@ -161,7 +159,7 @@ module tt_um_ross_systolic (
     assign uio_out = {3'b000, out_busy, out_valid, busy_core, 2'b00};
     assign uio_oe  = 8'hFC;  // bits 7:2 = output, bits 1:0 = input
 
-    wire _unused = &{uio_in[7:2], 1'b0};
+    wire _unused = &{uio_in[7:2], acc00[8], acc01[8], acc10[8], acc11[8], 1'b0};
 
 endmodule
 
