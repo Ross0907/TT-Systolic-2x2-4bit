@@ -5,7 +5,7 @@ project:
   discord:      ""
   description:  "2x2 signed 4-bit systolic array matrix multiplier with 9-bit accumulators, overflow detection, sign reconstruction, and manual step mode"
   language:     "Verilog"
-  clock_hz:     0
+  clock_hz:     50000000
 
   tiles: "1x1"
 
